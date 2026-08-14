@@ -166,3 +166,4 @@ BookVerse is structured as a production-oriented marketplace project with clear 
 
 Define your project license here (for example: MIT).
 # BookVerse
+# Frontend
