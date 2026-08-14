@@ -1,138 +1,94 @@
-import React, { useState } from "react";
-import { AuthProvider, useAuth } from "./contexts/AuthContext";
-import { CartProvider } from "./contexts/CartContext";
-import { Header } from "./components/common/Header";
-import { Footer } from "./components/common/Footer";
-import { AuthModal } from "./components/auth/AuthModal";
-import { ProtectedRoute } from "./components/auth/ProtectedRoute";
+import React, { useState } from 'react';
+import { AppProvider, useApp } from './context';
+import Navbar from './components/Navbar';
+import Footer from './components/Footer';
+import Auth from './views/Auth';
+import Home from './views/customer/Home';
+import BookDetail from './views/customer/BookDetail';
+import Cart from './views/customer/Cart';
+import CustomerOrders from './views/customer/Orders';
+import Profile from './views/customer/Profile';
+import ShopProfile from './views/customer/ShopProfile';
+import ShopDashboard from './views/shop/ShopDashboard';
+import AdminDashboard from './views/admin/AdminDashboard';
 
-// Customer Pages
-import { HomePage } from "./pages/customer/HomePage";
-import { BookDetailPage } from "./pages/customer/BookDetailPage";
-import { CartPage } from "./pages/customer/CartPage";
-import { CheckoutPage } from "./pages/customer/CheckoutPage";
-import { MyOrdersPage } from "./pages/customer/MyOrdersPage";
-import { OrderDetailPage } from "./pages/customer/OrderDetailPage";
+function AppContent() {
+  const { page, currentUser } = useApp();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeCategory, setActiveCategory] = useState('');
 
-// Other Roles
-import { ShopDashboardPage } from "./pages/shop/ShopDashboardPage";
-import { AdminDashboardPage } from "./pages/admin/AdminDashboardPage";
-import { DeliverDashboardPage } from "./pages/deliver/DeliverDashboardPage";
+  const renderPage = () => {
+    // Auth page
+    if (page === 'auth') return <Auth />;
 
-const AppContent = () => {
-  const { role } = useAuth();
-  const [customerPage, setCustomerPage] = useState("home");
-  const [selectedBook, setSelectedBook] = useState(null);
-  const [selectedOrder, setSelectedOrder] = useState(null);
-  const [authModalOpen, setAuthModalOpen] = useState(false);
+    // Customer Views
+    if (page === 'home') {
+      return (
+        <Home
+          search={searchQuery}
+          activeCategory={activeCategory}
+        />
+      );
+    }
+    if (page === 'book-detail') return <BookDetail />;
+    if (page === 'shop-profile') return <ShopProfile />;
+
+    // Authenticated Customer Views
+    if (page === 'cart') {
+      if (!currentUser) return <Auth />;
+      return <Cart />;
+    }
+    if (page === 'customer-orders') {
+      if (!currentUser) return <Auth />;
+      return <CustomerOrders />;
+    }
+    if (page === 'profile') {
+      if (!currentUser) return <Auth />;
+      return <Profile />;
+    }
+
+    // Shop Dashboard Views
+    if (page === 'shop-books') return <ShopDashboard tab="books" />;
+    if (page === 'shop-orders') return <ShopDashboard tab="orders" />;
+    if (page === 'shop-feedbacks') return <ShopDashboard tab="feedbacks" />;
+    if (page === 'shop-revenue') return <ShopDashboard tab="revenue" />;
+    if (page === 'shop-settings') return <ShopDashboard tab="settings" />;
+
+    // Admin Dashboard Views
+    if (page === 'admin-users') return <AdminDashboard tab="users" />;
+    if (page === 'admin-shops') return <AdminDashboard tab="shops" />;
+    if (page === 'admin-disputes') return <AdminDashboard tab="disputes" />;
+
+    // Default Fallback
+    return <Home search={searchQuery} activeCategory={activeCategory} />;
+  };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-100/70 text-slate-900 selection:bg-blue-600 selection:text-white">
-      {/* Header */}
-      <Header
-        customerPage={customerPage}
-        setCustomerPage={setCustomerPage}
-        onOpenAuth={() => setAuthModalOpen(true)}
+    <div className="min-h-screen flex flex-col bg-[#faf6f1] text-[#1c1612]">
+      <Navbar
+        searchValue={searchQuery}
+        onSearch={(query) => setSearchQuery(query)}
+        activeCategory={activeCategory}
+        onSelectCategory={(cat) => {
+          if (activeCategory === cat) {
+            setActiveCategory('');
+          } else {
+            setActiveCategory(cat);
+          }
+        }}
       />
-
-      {/* Main Role Content */}
       <main className="flex-1">
-        {/* CUSTOMER VIEWS */}
-        {role === "customer" && customerPage === "home" && (
-          <HomePage
-            onSelectBook={(book) => {
-              setSelectedBook(book);
-              setCustomerPage("book");
-            }}
-            onGoToCart={() => setCustomerPage("cart")}
-          />
-        )}
-
-        {role === "customer" && customerPage === "book" && selectedBook && (
-          <BookDetailPage
-            book={selectedBook}
-            onBack={() => setCustomerPage("home")}
-          />
-        )}
-
-        {role === "customer" && customerPage === "cart" && (
-          <CartPage
-            onBack={() => setCustomerPage("home")}
-            onCheckout={() => setCustomerPage("checkout")}
-          />
-        )}
-
-        {role === "customer" && customerPage === "checkout" && (
-          <CheckoutPage
-            onBack={() => setCustomerPage("cart")}
-            onSuccess={() => setCustomerPage("orders")}
-          />
-        )}
-
-        {role === "customer" && customerPage === "orders" && (
-          <MyOrdersPage
-            onSelectOrder={(order) => {
-              setSelectedOrder(order);
-              setCustomerPage("orderDetail");
-            }}
-          />
-        )}
-
-        {role === "customer" && customerPage === "orderDetail" && selectedOrder && (
-          <OrderDetailPage
-            order={selectedOrder}
-            onBack={() => setCustomerPage("orders")}
-          />
-        )}
-
-        {/* SHOP VIEW */}
-        {role === "shop" && (
-          <ProtectedRoute
-            allowedRoles={["shop"]}
-            onOpenAuth={() => setAuthModalOpen(true)}
-          >
-            <ShopDashboardPage />
-          </ProtectedRoute>
-        )}
-
-        {/* ADMIN VIEW */}
-        {role === "admin" && (
-          <ProtectedRoute
-            allowedRoles={["admin"]}
-            onOpenAuth={() => setAuthModalOpen(true)}
-          >
-            <AdminDashboardPage />
-          </ProtectedRoute>
-        )}
-
-        {/* DELIVER VIEW */}
-        {role === "deliver" && (
-          <ProtectedRoute
-            allowedRoles={["deliver"]}
-            onOpenAuth={() => setAuthModalOpen(true)}
-          >
-            <DeliverDashboardPage />
-          </ProtectedRoute>
-        )}
+        {renderPage()}
       </main>
-
-      {/* Global Modals & Footer */}
-      <AuthModal
-        isOpen={authModalOpen}
-        onClose={() => setAuthModalOpen(false)}
-      />
-
       <Footer />
     </div>
   );
-};
+}
 
 export default function App() {
   return (
-    <AuthProvider>
-      <CartProvider>
-        <AppContent />
-      </CartProvider>
-    </AuthProvider>
+    <AppProvider>
+      <AppContent />
+    </AppProvider>
   );
 }
