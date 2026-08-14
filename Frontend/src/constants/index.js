@@ -1,0 +1,35 @@
+export const ROLES = {
+  CUSTOMER: "customer",
+  SHOP: "shop",
+  ADMIN: "admin",
+  DELIVER: "deliver",
+};
+
+export const ORDER_STATUS = {
+  PENDING: "PENDING",
+  PAID: "PAID",
+  PROCESSING: "PROCESSING",
+  SHIPPED: "SHIPPED",
+  DELIVERED: "DELIVERED",
+  CANCELLED: "CANCELLED",
+  RETURNED: "RETURNED",
+};
+
+export const PAYMENT_METHODS = {
+  COD: "COD",
+  ONLINE: "ONLINE",
+};
+
+export const DELIVERY_STATUS = {
+  PENDING: "PENDING",
+  TRANSIT: "TRANSIT",
+  OUT_FOR_DELIVERY: "OUT_FOR_DELIVERY",
+  DELIVERED: "DELIVERED",
+  RETURNED: "RETURNED",
+};
+
+export const RETURN_STATUS = {
+  PENDING: "PENDING",
+  APPROVED: "APPROVED",
+  REJECTED: "REJECTED",
+};
