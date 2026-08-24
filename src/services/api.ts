@@ -2,6 +2,7 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 import { getStoredToken, removeStoredToken } from "../utils/storage";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "/api";
+const API_TIMEOUT = Number(import.meta.env.VITE_API_TIMEOUT) || 15000;
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -9,7 +10,7 @@ export const apiClient = axios.create({
     "Content-Type": "application/json",
     Accept: "application/json",
   },
-  timeout: 15000,
+  timeout: API_TIMEOUT,
 });
 
 // Request Interceptor: Tự động đính kèm JWT Bearer Token
