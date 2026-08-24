@@ -1,6 +1,6 @@
 import { apiClient } from "./api";
 import { Order, CartItem, PaymentMethod } from "../types";
-import { INITIAL_ORDERS } from "./mockData";
+import { INITIAL_ORDERS, INITIAL_BOOKS } from "./mockData";
 
 export const orderService = {
   async getOrders(customerId?: number): Promise<Order[]> {
@@ -64,12 +64,14 @@ export const orderService = {
       shopGroups.forEach((items, shopId) => {
         const totalAmount = items.reduce((s, i) => s + i.book.price * i.quantity, 0);
         const shippingFee = 30000;
+        const shopName = items[0]?.book.shopName || "Nhà sách đối tác";
         const newOrder: Order = {
           id: baseId++,
           customerId,
           customerName,
           customerPhone,
           shopId,
+          shopName,
           items: items.map((i) => ({
             book: i.book,
             quantity: i.quantity,
@@ -89,11 +91,30 @@ export const orderService = {
             carrier: "Giao Hàng Nhanh",
             status: "PENDING",
             estimated: "3-5 ngày tới",
+            note: "Shop đang chuẩn bị hàng",
           },
         };
+        INITIAL_ORDERS.unshift(newOrder);
         createdOrders.push(newOrder);
       });
       return createdOrders;
+    }
+  },
+
+  async cancelOrder(orderId: number, reason?: string): Promise<boolean> {
+    try {
+      await apiClient.post(`/orders/${orderId}/cancel`, { reason });
+      return true;
+    } catch {
+      const order = INITIAL_ORDERS.find((o) => o.id === orderId);
+      if (order && (order.orderStatus === "PENDING" || order.orderStatus === "PAID")) {
+        order.orderStatus = "CANCELLED";
+        if (order.paymentStatus === "PAID") {
+          order.paymentStatus = "REFUNDED";
+        }
+        return true;
+      }
+      return false;
     }
   },
 
@@ -110,25 +131,57 @@ export const orderService = {
           type: "SHOP",
           createdAt: new Date().toISOString().split("T")[0],
           customer: customerName || order.customerName,
+          customerName: customerName || order.customerName,
         };
       }
       return true;
     }
   },
 
-  async requestReturn(orderId: number, reason: string, reasonType = "DAMAGED"): Promise<boolean> {
+  async replyFeedback(orderId: number, shopReply: string): Promise<boolean> {
     try {
-      await apiClient.post(`/orders/${orderId}/return`, { reason, reasonType });
+      await apiClient.post(`/orders/${orderId}/feedback/reply`, { shopReply });
+      return true;
+    } catch {
+      const order = INITIAL_ORDERS.find((o) => o.id === orderId);
+      if (order && order.feedback) {
+        order.feedback.shopReply = shopReply;
+        order.feedback.shopRepliedAt = new Date().toISOString().split("T")[0];
+      }
+      return true;
+    }
+  },
+
+  async reportFeedback(orderId: number, reportReason: string): Promise<boolean> {
+    try {
+      await apiClient.post(`/orders/${orderId}/feedback/report`, { reportReason });
+      return true;
+    } catch {
+      const order = INITIAL_ORDERS.find((o) => o.id === orderId);
+      if (order && order.feedback) {
+        order.feedback.isReported = true;
+        order.feedback.reportReason = reportReason;
+      }
+      return true;
+    }
+  },
+
+  async requestReturn(orderId: number, reason: string, reasonType = "DAMAGED", evidenceImage?: string): Promise<boolean> {
+    try {
+      await apiClient.post(`/orders/${orderId}/return`, { reason, reasonType, evidenceImage });
       return true;
     } catch {
       const order = INITIAL_ORDERS.find((o) => o.id === orderId);
       if (order) {
         order.returnRequest = {
+          orderId: order.id,
           reason,
           reasonType,
           status: "PENDING",
+          disputeStatus: "OPEN",
           refundAmount: order.totalAmount,
           createdAt: new Date().toISOString().split("T")[0],
+          evidenceImage: evidenceImage || "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=400",
         };
       }
       return true;
