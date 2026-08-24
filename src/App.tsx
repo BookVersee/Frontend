@@ -6,6 +6,7 @@ import { Footer } from "./components/common/Footer";
 import { AuthModal } from "./components/auth/AuthModal";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { Book, Order, CustomerPage } from "./types";
+import { ChatDrawer } from "./components/chat/ChatDrawer";
 
 // Customer Pages
 import { HomePage } from "./pages/customer/HomePage";
@@ -14,6 +15,8 @@ import { CartPage } from "./pages/customer/CartPage";
 import { CheckoutPage } from "./pages/customer/CheckoutPage";
 import { MyOrdersPage } from "./pages/customer/MyOrdersPage";
 import { OrderDetailPage } from "./pages/customer/OrderDetailPage";
+import { ProfilePage } from "./pages/customer/ProfilePage";
+import { ShopProfilePage } from "./pages/customer/ShopProfilePage";
 
 // Other Roles
 import { ShopDashboardPage } from "./pages/shop/ShopDashboardPage";
@@ -25,7 +28,9 @@ const AppContent: React.FC = () => {
   const [customerPage, setCustomerPage] = useState<CustomerPage>("home");
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [selectedShopId, setSelectedShopId] = useState<number>(1);
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-100/70 text-slate-900 selection:bg-blue-600 selection:text-white">
@@ -34,6 +39,7 @@ const AppContent: React.FC = () => {
         customerPage={customerPage}
         setCustomerPage={setCustomerPage}
         onOpenAuth={() => setAuthModalOpen(true)}
+        onOpenChat={() => setChatDrawerOpen(true)}
       />
 
       {/* Main Role Content */}
@@ -46,6 +52,10 @@ const AppContent: React.FC = () => {
               setCustomerPage("book");
             }}
             onGoToCart={() => setCustomerPage("cart")}
+            onSelectShop={(shopId) => {
+              setSelectedShopId(shopId);
+              setCustomerPage("shopProfile");
+            }}
           />
         )}
 
@@ -53,6 +63,21 @@ const AppContent: React.FC = () => {
           <BookDetailPage
             book={selectedBook}
             onBack={() => setCustomerPage("home")}
+            onSelectShop={(shopId) => {
+              setSelectedShopId(shopId);
+              setCustomerPage("shopProfile");
+            }}
+          />
+        )}
+
+        {role === "customer" && customerPage === "shopProfile" && (
+          <ShopProfilePage
+            shopId={selectedShopId}
+            onBack={() => setCustomerPage("home")}
+            onSelectBook={(book) => {
+              setSelectedBook(book);
+              setCustomerPage("book");
+            }}
           />
         )}
 
@@ -86,6 +111,10 @@ const AppContent: React.FC = () => {
           />
         )}
 
+        {role === "customer" && customerPage === "profile" && (
+          <ProfilePage />
+        )}
+
         {/* SHOP VIEW */}
         {role === "shop" && (
           <ProtectedRoute
@@ -117,10 +146,16 @@ const AppContent: React.FC = () => {
         )}
       </main>
 
-      {/* Global Modals & Footer */}
+      {/* Global Modals & Drawers */}
       <AuthModal
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
+      />
+
+      <ChatDrawer
+        isOpen={chatDrawerOpen}
+        onClose={() => setChatDrawerOpen(false)}
+        shopId={selectedShopId}
       />
 
       <Footer />
