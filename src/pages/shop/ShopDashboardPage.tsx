@@ -9,10 +9,15 @@ import {
   Check,
   X,
   Plus,
-  Eye,
+  Edit,
+  Trash2,
   CheckCircle,
+  MessageSquare,
+  CornerDownRight,
+  Send,
+  Calendar,
 } from "lucide-react";
-import { Order, Book, OrderStatus } from "../../types";
+import { Order, Book, OrderStatus, OrderFeedback } from "../../types";
 import { shopService } from "../../services/shopService";
 import { useAuth } from "../../contexts/AuthContext";
 import { orderStatusInfo } from "../../utils/status";
@@ -29,31 +34,46 @@ export const ShopDashboardPage: React.FC = () => {
   const shopId = user?.shopId || 1;
   const shopName = user?.shopName || "Nhà sách Phương Nam";
 
-  const [page, setPage] = useState<"orders" | "products">("orders");
+  const [tab, setTab] = useState<"orders" | "products" | "feedbacks" | "revenue">("orders");
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Book[]>([]);
+  const [feedbacks, setFeedbacks] = useState<{ orderId: number; feedback: OrderFeedback }[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Add product modal state
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
-  const [newAuthor, setNewAuthor] = useState("");
-  const [newPublisher, setNewPublisher] = useState("NXB Trẻ");
-  const [newPrice, setNewPrice] = useState("95000");
-  const [newStock, setNewStock] = useState("50");
-  const [newDesc, setNewDesc] = useState("");
-  const [newColor1, setNewColor1] = useState("#1d4ed8");
-  const [newColor2, setNewColor2] = useState("#3b82f6");
+  // Search in shop products
+  const [productSearch, setProductSearch] = useState("");
+
+  // Add & Edit Product Modal State
+  const [showProductModal, setShowProductModal] = useState(false);
+  const [editingBookId, setEditingBookId] = useState<number | null>(null);
+  const [title, setTitle] = useState("");
+  const [author, setAuthor] = useState("");
+  const [publisher, setPublisher] = useState("NXB Trẻ");
+  const [price, setPrice] = useState("95000");
+  const [stock, setStock] = useState("50");
+  const [desc, setDesc] = useState("");
+  const [isbn, setIsbn] = useState("");
+  const [color1, setColor1] = useState("#1d4ed8");
+  const [color2, setColor2] = useState("#3b82f6");
+
+  // Reply Feedback State
+  const [replyTextMap, setReplyTextMap] = useState<Record<number, string>>({});
+  const [submittingReply, setSubmittingReply] = useState<number | null>(null);
+
+  // Revenue filter period
+  const [revenuePeriod, setRevenuePeriod] = useState<"day" | "month" | "year">("month");
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [ordersData, productsData] = await Promise.all([
+      const [ordersData, productsData, feedbacksData] = await Promise.all([
         shopService.getShopOrders(shopId),
         shopService.getShopProducts(shopId),
+        shopService.getShopFeedbacks(shopId),
       ]);
       setOrders(ordersData);
       setProducts(productsData);
+      setFeedbacks(feedbacksData);
     } finally {
       setLoading(false);
     }
@@ -70,32 +90,114 @@ export const ShopDashboardPage: React.FC = () => {
     );
   };
 
-  const handleAddProduct = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTitle || !newAuthor) return;
-
-    const created = await shopService.addProduct({
-      shopId,
-      shopName,
-      categoryId: 1,
-      title: newTitle,
-      author: newAuthor,
-      publisher: newPublisher,
-      price: Number(newPrice) || 50000,
-      stock: Number(newStock) || 10,
-      rating: 5.0,
-      reviewCount: 0,
-      description: newDesc || "Tác phẩm mới cập nhật tại nhà sách.",
-      coverColor: newColor1,
-      coverColor2: newColor2,
-      status: "ACTIVE",
-    });
-
-    setProducts((prev) => [created, ...prev]);
-    setShowAddModal(false);
-    setNewTitle("");
-    setNewAuthor("");
+  const handleOpenAddModal = () => {
+    setEditingBookId(null);
+    setTitle("");
+    setAuthor("");
+    setPublisher("NXB Trẻ");
+    setPrice("95000");
+    setStock("50");
+    setDesc("");
+    setIsbn("");
+    setColor1("#1d4ed8");
+    setColor2("#3b82f6");
+    setShowProductModal(true);
   };
+
+  const handleOpenEditModal = (book: Book) => {
+    setEditingBookId(book.id);
+    setTitle(book.title);
+    setAuthor(book.author);
+    setPublisher(book.publisher);
+    setPrice(String(book.price));
+    setStock(String(book.stock));
+    setDesc(book.description || "");
+    setIsbn(book.isbn || "");
+    setColor1(book.coverColor || "#1d4ed8");
+    setColor2(book.coverColor2 || "#3b82f6");
+    setShowProductModal(true);
+  };
+
+  const handleSaveProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title || !author) return;
+
+    if (editingBookId) {
+      const updated = await shopService.updateProduct(editingBookId, {
+        title,
+        author,
+        publisher,
+        price: Number(price) || 50000,
+        stock: Number(stock) || 10,
+        description: desc,
+        isbn,
+        coverColor: color1,
+        coverColor2: color2,
+      });
+      setProducts((prev) => prev.map((b) => (b.id === editingBookId ? updated : b)));
+    } else {
+      const created = await shopService.addProduct({
+        shopId,
+        shopName,
+        categoryId: 1,
+        title,
+        author,
+        publisher,
+        price: Number(price) || 50000,
+        stock: Number(stock) || 10,
+        rating: 5.0,
+        reviewCount: 0,
+        description: desc || "Tác phẩm mới cập nhật tại nhà sách.",
+        coverColor: color1,
+        coverColor2: color2,
+        status: "ACTIVE",
+        isbn,
+      });
+      setProducts((prev) => [created, ...prev]);
+    }
+
+    setShowProductModal(false);
+  };
+
+  const handleDeleteProduct = async (id: number) => {
+    if (confirm("Bạn có chắc chắn muốn ẩn đầu sách này khỏi gian hàng?")) {
+      await shopService.deleteProduct(id);
+      setProducts((prev) => prev.filter((b) => b.id !== id));
+    }
+  };
+
+  const handleSendReply = async (orderId: number) => {
+    const text = replyTextMap[orderId];
+    if (!text?.trim()) return;
+    setSubmittingReply(orderId);
+    try {
+      await shopService.replyFeedback(orderId, text.trim());
+      setFeedbacks((prev) =>
+        prev.map((f) =>
+          f.orderId === orderId
+            ? {
+                ...f,
+                feedback: {
+                  ...f.feedback,
+                  shopReply: text.trim(),
+                  shopRepliedAt: new Date().toISOString().split("T")[0],
+                },
+              }
+            : f
+        )
+      );
+      setReplyTextMap((prev) => ({ ...prev, [orderId]: "" }));
+    } finally {
+      setSubmittingReply(null);
+    }
+  };
+
+  const filteredProducts = products.filter((p) =>
+    productSearch
+      ? p.title.toLowerCase().includes(productSearch.toLowerCase()) ||
+        p.author.toLowerCase().includes(productSearch.toLowerCase())
+      : true
+  );
 
   const revenue = orders
     .filter((o) => o.orderStatus === "DELIVERED")
@@ -120,22 +222,30 @@ export const ShopDashboardPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Btn
-            onClick={() => setPage("orders")}
-            variant={page === "orders" ? "primary" : "outline"}
+            onClick={() => setTab("orders")}
+            variant={tab === "orders" ? "primary" : "outline"}
             size="sm"
             color="#047857"
           >
-            <Package size={14} /> Quản lý Đơn hàng ({orders.length})
+            <Package size={14} /> Đơn hàng ({orders.length})
           </Btn>
           <Btn
-            onClick={() => setPage("products")}
-            variant={page === "products" ? "primary" : "outline"}
+            onClick={() => setTab("products")}
+            variant={tab === "products" ? "primary" : "outline"}
             size="sm"
             color="#047857"
           >
             <BookOpen size={14} /> Kho sách ({products.length})
+          </Btn>
+          <Btn
+            onClick={() => setTab("feedbacks")}
+            variant={tab === "feedbacks" ? "primary" : "outline"}
+            size="sm"
+            color="#047857"
+          >
+            <MessageSquare size={14} /> Đánh giá ({feedbacks.length})
           </Btn>
         </div>
       </div>
@@ -173,7 +283,7 @@ export const ShopDashboardPage: React.FC = () => {
       </div>
 
       {/* Orders Management Tab */}
-      {page === "orders" && (
+      {tab === "orders" && (
         <Card className="overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
             <h2 className="font-bold text-slate-800 text-base">
@@ -308,23 +418,28 @@ export const ShopDashboardPage: React.FC = () => {
       )}
 
       {/* Products Management Tab */}
-      {page === "products" && (
+      {tab === "products" && (
         <Card className="overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h2 className="font-bold text-slate-800 text-base">
-              Danh mục sách của cửa hàng
-            </h2>
+          <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3 flex-1 max-w-sm">
+              <input
+                value={productSearch}
+                onChange={(e) => setProductSearch(e.target.value)}
+                placeholder="Tìm sách trong kho..."
+                className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl px-3 py-1.5 bg-slate-50 focus:outline-none"
+              />
+            </div>
             <Btn
               size="sm"
               color="#047857"
-              onClick={() => setShowAddModal(true)}
+              onClick={handleOpenAddModal}
             >
               <Plus size={14} /> Đăng bán sách mới
             </Btn>
           </div>
 
           <div className="divide-y divide-slate-100">
-            {products.map((book) => (
+            {filteredProducts.map((book) => (
               <div
                 key={book.id}
                 className="p-4 flex items-center gap-4 hover:bg-slate-50/70 transition-colors"
@@ -337,7 +452,7 @@ export const ShopDashboardPage: React.FC = () => {
                     {book.title}
                   </p>
                   <p className="text-xs text-slate-500">
-                    {book.author} • NXB: {book.publisher}
+                    {book.author} • NXB: {book.publisher} {book.isbn && `• ISBN: ${book.isbn}`}
                   </p>
                   <div className="flex items-center gap-3 mt-1.5">
                     <span className="text-sm font-bold text-blue-600">
@@ -359,31 +474,104 @@ export const ShopDashboardPage: React.FC = () => {
                   bg={book.status === "ACTIVE" ? "#d1fae5" : "#fee2e2"}
                 />
 
-                <button className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors">
-                  <Eye size={16} />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handleOpenEditModal(book)}
+                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors cursor-pointer"
+                    title="Chỉnh sửa sách"
+                  >
+                    <Edit size={16} />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteProduct(book.id)}
+                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
+                    title="Ẩn sách khỏi gian hàng"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         </Card>
       )}
 
-      {/* Add Product Modal */}
+      {/* Feedbacks Management Tab */}
+      {tab === "feedbacks" && (
+        <Card className="overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100">
+            <h2 className="font-bold text-slate-800 text-base">
+              Đánh giá từ khách hàng & Phản hồi của shop
+            </h2>
+          </div>
+
+          <div className="divide-y divide-slate-100 p-6 space-y-4">
+            {feedbacks.length === 0 ? (
+              <p className="text-center text-slate-400 py-8">Chưa có đánh giá nào từ khách hàng.</p>
+            ) : (
+              feedbacks.map((f) => (
+                <div key={f.orderId} className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-bold text-xs text-slate-800">
+                      {f.feedback.customer || f.feedback.customerName} • Đơn #{f.orderId}
+                    </span>
+                    <span className="text-xs text-amber-600 font-bold">
+                      ⭐ {f.feedback.rating}/5
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-700 mb-3">"{f.feedback.content}"</p>
+
+                  {f.feedback.shopReply ? (
+                    <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200">
+                      <div className="flex items-center justify-between text-[11px] text-emerald-800 font-semibold mb-1">
+                        <span>Shop đã trả lời:</span>
+                        <span className="text-slate-400 font-normal">{f.feedback.shopRepliedAt}</span>
+                      </div>
+                      <p className="text-xs text-slate-700 italic">"{f.feedback.shopReply}"</p>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 mt-2">
+                      <input
+                        value={replyTextMap[f.orderId] || ""}
+                        onChange={(e) =>
+                          setReplyTextMap({ ...replyTextMap, [f.orderId]: e.target.value })
+                        }
+                        placeholder="Nhập câu trả lời cảm ơn hoặc hỗ trợ khách hàng..."
+                        className="flex-1 text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-emerald-500"
+                      />
+                      <Btn
+                        size="sm"
+                        color="#047857"
+                        disabled={submittingReply === f.orderId}
+                        onClick={() => handleSendReply(f.orderId)}
+                      >
+                        <Send size={13} /> Trả lời
+                      </Btn>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* Add / Edit Product Modal */}
       <Modal
-        isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
-        title="Thêm tựa sách mới vào cửa hàng"
+        isOpen={showProductModal}
+        onClose={() => setShowProductModal(false)}
+        title={editingBookId ? "Chỉnh sửa thông tin sách" : "Thêm tựa sách mới vào cửa hàng"}
         maxWidth="max-w-lg"
       >
-        <form onSubmit={handleAddProduct} className="space-y-4">
+        <form onSubmit={handleSaveProduct} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1">
               Tựa đề sách *
             </label>
             <input
               required
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
               placeholder="Nhập tên sách..."
               className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-emerald-500 bg-slate-50"
             />
@@ -396,26 +584,37 @@ export const ShopDashboardPage: React.FC = () => {
               </label>
               <input
                 required
-                value={newAuthor}
-                onChange={(e) => setNewAuthor(e.target.value)}
+                value={author}
+                onChange={(e) => setAuthor(e.target.value)}
                 placeholder="Tên tác giả..."
                 className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-emerald-500 bg-slate-50"
               />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">
-                Nhà xuất bản
+                Mã ISBN
               </label>
               <input
-                value={newPublisher}
-                onChange={(e) => setNewPublisher(e.target.value)}
-                placeholder="NXB Trẻ, Kim Đồng..."
+                value={isbn}
+                onChange={(e) => setIsbn(e.target.value)}
+                placeholder="978-604-..."
                 className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-emerald-500 bg-slate-50"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">
+                Nhà xuất bản
+              </label>
+              <input
+                value={publisher}
+                onChange={(e) => setPublisher(e.target.value)}
+                placeholder="NXB Trẻ..."
+                className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500 bg-slate-50"
+              />
+            </div>
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">
                 Giá bán (VNĐ) *
@@ -423,21 +622,21 @@ export const ShopDashboardPage: React.FC = () => {
               <input
                 type="number"
                 required
-                value={newPrice}
-                onChange={(e) => setNewPrice(e.target.value)}
-                className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-emerald-500 bg-slate-50"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500 bg-slate-50"
               />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">
-                Số lượng tồn kho *
+                Tồn kho *
               </label>
               <input
                 type="number"
                 required
-                value={newStock}
-                onChange={(e) => setNewStock(e.target.value)}
-                className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-emerald-500 bg-slate-50"
+                value={stock}
+                onChange={(e) => setStock(e.target.value)}
+                className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500 bg-slate-50"
               />
             </div>
           </div>
@@ -449,14 +648,14 @@ export const ShopDashboardPage: React.FC = () => {
             <div className="flex items-center gap-3">
               <input
                 type="color"
-                value={newColor1}
-                onChange={(e) => setNewColor1(e.target.value)}
+                value={color1}
+                onChange={(e) => setColor1(e.target.value)}
                 className="w-10 h-10 rounded-lg cursor-pointer border border-slate-200 p-0.5"
               />
               <input
                 type="color"
-                value={newColor2}
-                onChange={(e) => setNewColor2(e.target.value)}
+                value={color2}
+                onChange={(e) => setColor2(e.target.value)}
                 className="w-10 h-10 rounded-lg cursor-pointer border border-slate-200 p-0.5"
               />
               <span className="text-xs text-slate-400">
@@ -471,15 +670,15 @@ export const ShopDashboardPage: React.FC = () => {
             </label>
             <textarea
               rows={3}
-              value={newDesc}
-              onChange={(e) => setNewDesc(e.target.value)}
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
               placeholder="Giới thiệu tóm tắt tác phẩm..."
               className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-emerald-500 bg-slate-50 resize-none"
             />
           </div>
 
           <Btn type="submit" color="#047857" size="md" className="w-full mt-2">
-            <Plus size={16} /> Thêm sách vào gian hàng
+            {editingBookId ? "Lưu thay đổi sách" : "Thêm sách vào gian hàng"}
           </Btn>
         </form>
       </Modal>
