@@ -20,6 +20,10 @@ export type DeliveryStatus =
 
 export type ReturnStatus = "PENDING" | "APPROVED" | "REJECTED";
 
+export type DisputeLevel = "OPEN" | "PROCESSING" | "CLOSED";
+
+export type UserStatus = "ACTIVE" | "LOCKED";
+
 export interface Category {
   id: number;
   name: string;
@@ -41,6 +45,8 @@ export interface Book {
   coverColor: string;
   coverColor2: string;
   status: "ACTIVE" | "OUT_OF_STOCK" | "HIDDEN";
+  isbn?: string;
+  publishedYear?: number;
 }
 
 export interface CartItem {
@@ -60,22 +66,37 @@ export interface OrderTracking {
   status: DeliveryStatus;
   estimated: string;
   actualDelivered?: string;
+  note?: string;
 }
 
 export interface OrderFeedback {
+  id?: number;
+  orderId?: number;
+  bookId?: number;
   rating: number;
   content: string;
   type: "SHOP" | "BOOK";
   createdAt: string;
   customer?: string;
+  customerName?: string;
+  shopReply?: string;
+  shopRepliedAt?: string;
+  isReported?: boolean;
+  reportReason?: string;
 }
 
 export interface ReturnRequest {
+  id?: number;
+  orderId?: number;
   reason: string;
   reasonType: string;
   status: ReturnStatus;
   refundAmount: number;
   createdAt: string;
+  evidenceImage?: string;
+  shopResponse?: string;
+  disputeStatus?: DisputeLevel;
+  adminResolutionNote?: string;
 }
 
 export interface Order {
@@ -84,6 +105,7 @@ export interface Order {
   customerName: string;
   customerPhone: string;
   shopId: number;
+  shopName?: string;
   items: OrderItem[];
   totalAmount: number;
   shippingFee: number;
@@ -102,11 +124,13 @@ export interface Order {
 export interface Transaction {
   id: number;
   orderId: number;
+  userId?: number;
   amount: number;
-  type: string;
+  type: "ONLINE" | "COD" | "SHIPPING_FEE" | "REFUND" | "SHOP_REVENUE" | "TOPUP";
   paidBy: string;
   createdAt: string;
   code?: string;
+  status?: "SUCCESS" | "PENDING" | "FAILED";
 }
 
 export interface DeliveryTask {
@@ -120,6 +144,8 @@ export interface DeliveryTask {
   items: number;
   weight: string;
   estimatedDate: string;
+  fee?: number;
+  shipperName?: string;
 }
 
 export interface User {
@@ -130,8 +156,50 @@ export interface User {
   shopId?: number;
   shopName?: string;
   phone?: string;
+  address?: string;
   avatar?: string;
   createdAt?: string;
+  status?: UserStatus;
+  shopStatus?: "PENDING" | "ACTIVE" | "REJECTED";
+  balance?: number;
+}
+
+export interface Shop {
+  id: number;
+  ownerId: number;
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  description?: string;
+  avatar?: string;
+  status: "PENDING" | "ACTIVE" | "REJECTED";
+  rating: number;
+  reviewCount: number;
+  bookCount: number;
+  joinedDate: string;
+}
+
+export interface AppNotification {
+  id: number;
+  userId: number;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: string;
+  type: "ORDER" | "REFUND" | "CHAT" | "SYSTEM";
+  link?: string;
+}
+
+export interface ChatMessage {
+  id: number;
+  senderId: number;
+  receiverId: number;
+  shopId?: number;
+  text: string;
+  createdAt: string;
+  isFromCustomer: boolean;
+  senderName?: string;
 }
 
 export interface AuthResponse {
@@ -146,4 +214,13 @@ export type CustomerPage =
   | "cart"
   | "checkout"
   | "orders"
-  | "orderDetail";
+  | "orderDetail"
+  | "profile"
+  | "shopProfile";
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  message?: string;
+  errors?: string[];
+}

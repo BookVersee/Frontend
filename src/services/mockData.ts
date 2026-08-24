@@ -5,6 +5,9 @@ import {
   Transaction,
   DeliveryTask,
   User,
+  Shop,
+  AppNotification,
+  ChatMessage,
 } from "../types";
 
 export const INITIAL_CATEGORIES: Category[] = [
@@ -14,6 +17,65 @@ export const INITIAL_CATEGORIES: Category[] = [
   { id: 4, name: "Kinh tế - Kinh doanh" },
   { id: 5, name: "Tâm lý học" },
   { id: 6, name: "Thiếu nhi" },
+];
+
+export const INITIAL_SHOPS: Shop[] = [
+  {
+    id: 1,
+    ownerId: 4,
+    name: "Nhà sách Phương Nam",
+    email: "phuongnam@shop.com",
+    phone: "02838225340",
+    address: "940 Đường 3/2, Phường 15, Quận 11, TP.HCM",
+    description: "Hệ thống nhà sách Phương Nam chuyên cung cấp sách quốc văn, ngoại văn, văn phòng phẩm chính hãng hàng đầu Việt Nam.",
+    status: "ACTIVE",
+    rating: 4.9,
+    reviewCount: 4120,
+    bookCount: 1420,
+    joinedDate: "01/01/2023",
+  },
+  {
+    id: 2,
+    ownerId: 5,
+    name: "Fahasa Online",
+    email: "fahasa@shop.com",
+    phone: "1900636467",
+    address: "60-62 Lê Lợi, Bến Nghé, Quận 1, TP.HCM",
+    description: "Nhà sách Fahasa chuyên phân phối sách quốc văn, ngoại văn và giáo trình học tập đa dạng.",
+    status: "ACTIVE",
+    rating: 4.8,
+    reviewCount: 6540,
+    bookCount: 2310,
+    joinedDate: "15/01/2023",
+  },
+  {
+    id: 3,
+    ownerId: 6,
+    name: "Sách Tiki",
+    email: "tiki@shop.com",
+    phone: "19006035",
+    address: "52 Út Tịch, Phường 4, Tân Bình, TP.HCM",
+    description: "Gian hàng sách chính hãng Tiki Trading cam kết 100% sách thật và bọc sách Bookcare cao cấp.",
+    status: "ACTIVE",
+    rating: 4.7,
+    reviewCount: 8910,
+    bookCount: 3100,
+    joinedDate: "20/01/2023",
+  },
+  {
+    id: 4,
+    ownerId: 9,
+    name: "Tiệm Sách Cũ Sài Gòn",
+    email: "saigonbooks@shop.com",
+    phone: "0908765432",
+    address: "15 Nguyễn Thị Minh Khai, Quận 1, TP.HCM",
+    description: "Chuyên sưu tầm các đầu sách văn học cổ, tác phẩm quý hiếm trước năm 1975.",
+    status: "PENDING",
+    rating: 0,
+    reviewCount: 0,
+    bookCount: 15,
+    joinedDate: "24/08/2026",
+  },
 ];
 
 export const INITIAL_BOOKS: Book[] = [
@@ -34,6 +96,7 @@ export const INITIAL_BOOKS: Book[] = [
     coverColor: "#1d4ed8",
     coverColor2: "#3b82f6",
     status: "ACTIVE",
+    isbn: "978-604-58-1234-1",
   },
   {
     id: 2,
@@ -52,6 +115,7 @@ export const INITIAL_BOOKS: Book[] = [
     coverColor: "#b45309",
     coverColor2: "#f59e0b",
     status: "ACTIVE",
+    isbn: "978-604-95-5678-2",
   },
   {
     id: 3,
@@ -70,6 +134,7 @@ export const INITIAL_BOOKS: Book[] = [
     coverColor: "#065f46",
     coverColor2: "#10b981",
     status: "ACTIVE",
+    isbn: "978-604-88-9900-3",
   },
   {
     id: 4,
@@ -88,6 +153,7 @@ export const INITIAL_BOOKS: Book[] = [
     coverColor: "#6d28d9",
     coverColor2: "#8b5cf6",
     status: "OUT_OF_STOCK",
+    isbn: "978-604-77-4433-2",
   },
   {
     id: 5,
@@ -106,6 +172,7 @@ export const INITIAL_BOOKS: Book[] = [
     coverColor: "#92400e",
     coverColor2: "#d97706",
     status: "ACTIVE",
+    isbn: "978-604-1-08765-4",
   },
   {
     id: 6,
@@ -124,6 +191,7 @@ export const INITIAL_BOOKS: Book[] = [
     coverColor: "#0e7490",
     coverColor2: "#06b6d4",
     status: "ACTIVE",
+    isbn: "978-604-65-3321-9",
   },
   {
     id: 7,
@@ -142,6 +210,7 @@ export const INITIAL_BOOKS: Book[] = [
     coverColor: "#b91c1c",
     coverColor2: "#ef4444",
     status: "ACTIVE",
+    isbn: "978-604-1-12345-6",
   },
   {
     id: 8,
@@ -160,6 +229,7 @@ export const INITIAL_BOOKS: Book[] = [
     coverColor: "#7c3aed",
     coverColor2: "#a78bfa",
     status: "ACTIVE",
+    isbn: "978-604-1-23456-7",
   },
   {
     id: 9,
@@ -178,6 +248,7 @@ export const INITIAL_BOOKS: Book[] = [
     coverColor: "#047857",
     coverColor2: "#34d399",
     status: "ACTIVE",
+    isbn: "978-604-95-1122-3",
   },
   {
     id: 10,
@@ -196,6 +267,7 @@ export const INITIAL_BOOKS: Book[] = [
     coverColor: "#1e3a5f",
     coverColor2: "#2563eb",
     status: "ACTIVE",
+    isbn: "978-604-1-98765-0",
   },
   {
     id: 11,
@@ -214,6 +286,7 @@ export const INITIAL_BOOKS: Book[] = [
     coverColor: "#92400e",
     coverColor2: "#f59e0b",
     status: "ACTIVE",
+    isbn: "978-604-1-55443-2",
   },
   {
     id: 12,
@@ -232,6 +305,7 @@ export const INITIAL_BOOKS: Book[] = [
     coverColor: "#374151",
     coverColor2: "#6b7280",
     status: "ACTIVE",
+    isbn: "978-604-90-9988-7",
   },
 ];
 
@@ -242,6 +316,7 @@ export const INITIAL_ORDERS: Order[] = [
     customerName: "Nguyễn Văn An",
     customerPhone: "0901234567",
     shopId: 1,
+    shopName: "Nhà sách Phương Nam",
     items: [
       { book: INITIAL_BOOKS[0], quantity: 1, unitPrice: 89000 },
       { book: INITIAL_BOOKS[5], quantity: 2, unitPrice: 135000 },
@@ -260,6 +335,7 @@ export const INITIAL_ORDERS: Order[] = [
       status: "DELIVERED",
       estimated: "2024-01-18",
       actualDelivered: "2024-01-18 14:30",
+      note: "Đã giao tận tay khách hàng",
     },
     feedback: {
       rating: 5,
@@ -267,6 +343,9 @@ export const INITIAL_ORDERS: Order[] = [
       type: "SHOP",
       createdAt: "2024-01-19",
       customer: "Nguyễn Văn An",
+      customerName: "Nguyễn Văn An",
+      shopReply: "Cảm ơn bạn An đã ủng hộ Nhà sách Phương Nam! Chúc bạn có những phút giây đọc sách bổ ích.",
+      shopRepliedAt: "2024-01-19 14:00",
     },
   },
   {
@@ -275,6 +354,7 @@ export const INITIAL_ORDERS: Order[] = [
     customerName: "Nguyễn Văn An",
     customerPhone: "0901234567",
     shopId: 2,
+    shopName: "Fahasa Online",
     items: [{ book: INITIAL_BOOKS[2], quantity: 1, unitPrice: 145000 }],
     totalAmount: 145000,
     shippingFee: 25000,
@@ -289,6 +369,7 @@ export const INITIAL_ORDERS: Order[] = [
       carrier: "Giao Hàng Nhanh",
       status: "TRANSIT",
       estimated: "2024-01-23",
+      note: "Đang luân chuyển qua kho trung chuyển Tân Bình",
     },
   },
   {
@@ -297,6 +378,7 @@ export const INITIAL_ORDERS: Order[] = [
     customerName: "Nguyễn Văn An",
     customerPhone: "0901234567",
     shopId: 3,
+    shopName: "Sách Tiki",
     items: [
       { book: INITIAL_BOOKS[6], quantity: 1, unitPrice: 62000 },
       { book: INITIAL_BOOKS[7], quantity: 1, unitPrice: 59000 },
@@ -316,6 +398,7 @@ export const INITIAL_ORDERS: Order[] = [
     customerName: "Trần Thị Bích",
     customerPhone: "0912345678",
     shopId: 1,
+    shopName: "Nhà sách Phương Nam",
     items: [{ book: INITIAL_BOOKS[9], quantity: 1, unitPrice: 120000 }],
     totalAmount: 120000,
     shippingFee: 30000,
@@ -326,11 +409,15 @@ export const INITIAL_ORDERS: Order[] = [
     createdAt: "2024-01-10 10:00",
     updatedAt: "2024-01-17 09:00",
     returnRequest: {
-      reason: "Sách bị rách bìa, không đúng như mô tả",
+      reason: "Sách bị rách bìa trước và nhăn gáy, không đúng như mô tả khi nhận hàng.",
       reasonType: "DAMAGED",
       status: "APPROVED",
       refundAmount: 120000,
       createdAt: "2024-01-15",
+      evidenceImage: "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=400",
+      shopResponse: "Shop đã kiểm tra hình ảnh từ đơn vị vận chuyển, đồng ý lỗi từ khâu đóng gói.",
+      disputeStatus: "CLOSED",
+      adminResolutionNote: "Admin xác nhận lỗi từ phía nhà sách đóng gói sơ sài. Hoàn 100% tiền sách cho khách Trần Thị Bích qua ví điện tử.",
     },
   },
   {
@@ -339,6 +426,7 @@ export const INITIAL_ORDERS: Order[] = [
     customerName: "Lê Minh Tuấn",
     customerPhone: "0923456789",
     shopId: 2,
+    shopName: "Fahasa Online",
     items: [
       { book: INITIAL_BOOKS[4], quantity: 2, unitPrice: 98000 },
       { book: INITIAL_BOOKS[10], quantity: 1, unitPrice: 68000 },
@@ -358,11 +446,13 @@ export const INITIAL_TRANSACTIONS: Transaction[] = [
   {
     id: 1,
     orderId: 1001,
+    userId: 1,
     amount: 389000,
     type: "ONLINE",
-    paidBy: "CUSTOMER",
+    paidBy: "CUSTOMER (Nguyễn Văn An)",
     createdAt: "2024-01-15 09:25",
     code: "VNP20240115092512",
+    status: "SUCCESS",
   },
   {
     id: 2,
@@ -371,49 +461,60 @@ export const INITIAL_TRANSACTIONS: Transaction[] = [
     type: "SHIPPING_FEE",
     paidBy: "CUSTOMER",
     createdAt: "2024-01-15 09:25",
+    status: "SUCCESS",
   },
   {
     id: 3,
     orderId: 1001,
     amount: 329000,
     type: "SHOP_REVENUE",
-    paidBy: "PLATFORM",
+    paidBy: "PLATFORM (BookVerse)",
     createdAt: "2024-01-18 16:00",
+    status: "SUCCESS",
   },
   {
     id: 4,
     orderId: 1002,
+    userId: 1,
     amount: 170000,
     type: "ONLINE",
-    paidBy: "CUSTOMER",
+    paidBy: "CUSTOMER (Nguyễn Văn An)",
     createdAt: "2024-01-20 11:07",
     code: "VNP20240120110734",
+    status: "SUCCESS",
   },
   {
     id: 5,
     orderId: 1004,
+    userId: 2,
     amount: 150000,
     type: "ONLINE",
-    paidBy: "CUSTOMER",
+    paidBy: "CUSTOMER (Trần Thị Bích)",
     createdAt: "2024-01-10 10:02",
     code: "VNP20240110100234",
+    status: "SUCCESS",
   },
   {
     id: 6,
     orderId: 1004,
+    userId: 2,
     amount: 120000,
     type: "REFUND",
-    paidBy: "PLATFORM",
+    paidBy: "PLATFORM (Hoàn tiền khiếu nại)",
     createdAt: "2024-01-17 09:30",
+    code: "REF20240117093011",
+    status: "SUCCESS",
   },
   {
     id: 7,
     orderId: 1005,
+    userId: 3,
     amount: 289000,
     type: "ONLINE",
-    paidBy: "CUSTOMER",
+    paidBy: "CUSTOMER (Lê Minh Tuấn)",
     createdAt: "2024-01-21 14:32",
     code: "VNP20240121143256",
+    status: "SUCCESS",
   },
 ];
 
@@ -429,6 +530,8 @@ export const INITIAL_DELIVER_TASKS: DeliveryTask[] = [
     items: 1,
     weight: "0.3kg",
     estimatedDate: "23/01/2024",
+    fee: 25000,
+    shipperName: "Nguyễn Văn Giao",
   },
   {
     id: 2,
@@ -441,6 +544,8 @@ export const INITIAL_DELIVER_TASKS: DeliveryTask[] = [
     items: 3,
     weight: "0.8kg",
     estimatedDate: "24/01/2024",
+    fee: 25000,
+    shipperName: "Nguyễn Văn Giao",
   },
   {
     id: 3,
@@ -453,6 +558,8 @@ export const INITIAL_DELIVER_TASKS: DeliveryTask[] = [
     items: 2,
     weight: "0.5kg",
     estimatedDate: "22/01/2024",
+    fee: 30000,
+    shipperName: "Nguyễn Văn Giao",
   },
 ];
 
@@ -463,7 +570,10 @@ export const DEMO_USERS: User[] = [
     email: "an.nguyen@email.com",
     role: "customer",
     phone: "0901234567",
+    address: "123 Nguyễn Huệ, Quận 1, TP.HCM",
     createdAt: "01/10/2023",
+    status: "ACTIVE",
+    balance: 500000,
   },
   {
     id: 2,
@@ -471,7 +581,10 @@ export const DEMO_USERS: User[] = [
     email: "bich.tran@email.com",
     role: "customer",
     phone: "0912345678",
+    address: "456 Lê Lợi, Quận 3, TP.HCM",
     createdAt: "15/10/2023",
+    status: "ACTIVE",
+    balance: 120000,
   },
   {
     id: 3,
@@ -479,7 +592,10 @@ export const DEMO_USERS: User[] = [
     email: "tuan.le@email.com",
     role: "customer",
     phone: "0923456789",
+    address: "789 Điện Biên Phủ, Quận Bình Thạnh, TP.HCM",
     createdAt: "20/11/2023",
+    status: "ACTIVE",
+    balance: 0,
   },
   {
     id: 4,
@@ -489,7 +605,10 @@ export const DEMO_USERS: User[] = [
     shopId: 1,
     shopName: "Nhà sách Phương Nam",
     phone: "02838225340",
+    address: "940 Đường 3/2, Quận 11, TP.HCM",
     createdAt: "01/01/2023",
+    status: "ACTIVE",
+    shopStatus: "ACTIVE",
   },
   {
     id: 5,
@@ -499,7 +618,10 @@ export const DEMO_USERS: User[] = [
     shopId: 2,
     shopName: "Fahasa Online",
     phone: "1900636467",
+    address: "60 Lê Lợi, Quận 1, TP.HCM",
     createdAt: "15/01/2023",
+    status: "ACTIVE",
+    shopStatus: "ACTIVE",
   },
   {
     id: 6,
@@ -509,7 +631,10 @@ export const DEMO_USERS: User[] = [
     shopId: 3,
     shopName: "Sách Tiki",
     phone: "19006035",
+    address: "52 Út Tịch, Tân Bình, TP.HCM",
     createdAt: "20/01/2023",
+    status: "ACTIVE",
+    shopStatus: "ACTIVE",
   },
   {
     id: 7,
@@ -517,7 +642,9 @@ export const DEMO_USERS: User[] = [
     email: "giao@deliver.com",
     role: "deliver",
     phone: "0934567890",
+    address: "Bưu cục GHN Quận 1, TP.HCM",
     createdAt: "01/06/2023",
+    status: "ACTIVE",
   },
   {
     id: 8,
@@ -525,5 +652,84 @@ export const DEMO_USERS: User[] = [
     email: "admin@bookshop.com",
     role: "admin",
     createdAt: "01/01/2023",
+    status: "ACTIVE",
+  },
+  {
+    id: 9,
+    name: "Tiệm Sách Cũ Sài Gòn",
+    email: "saigonbooks@shop.com",
+    role: "shop",
+    shopId: 4,
+    shopName: "Tiệm Sách Cũ Sài Gòn",
+    phone: "0908765432",
+    address: "15 Nguyễn Thị Minh Khai, Quận 1, TP.HCM",
+    createdAt: "24/08/2026",
+    status: "ACTIVE",
+    shopStatus: "PENDING",
+  },
+  {
+    id: 10,
+    name: "Tài Khoản Bị Khóa",
+    email: "spammer@email.com",
+    role: "customer",
+    phone: "0999999999",
+    createdAt: "10/05/2024",
+    status: "LOCKED",
+  },
+];
+
+export const INITIAL_NOTIFICATIONS: AppNotification[] = [
+  {
+    id: 1,
+    userId: 1,
+    title: "Đơn hàng #1002 đang giao",
+    message: "Shipper GHN đang trên đường giao đơn hàng sách của bạn.",
+    read: false,
+    createdAt: "10 phút trước",
+    type: "ORDER",
+    link: "/orders/1002",
+  },
+  {
+    id: 2,
+    userId: 1,
+    title: "Đơn hàng #1001 giao thành công",
+    message: "Đơn hàng sách đã được giao. Hãy để lại đánh giá nhé!",
+    read: true,
+    createdAt: "Hôm qua",
+    type: "ORDER",
+    link: "/orders/1001",
+  },
+  {
+    id: 3,
+    userId: 2,
+    title: "Yêu cầu hoàn tiền đã duyệt",
+    message: "Admin đã duyệt hoàn 120.000đ cho đơn hàng #1004 của bạn.",
+    read: false,
+    createdAt: "2 giờ trước",
+    type: "REFUND",
+    link: "/orders/1004",
+  },
+];
+
+export const INITIAL_MESSAGES: ChatMessage[] = [
+  {
+    id: 1,
+    senderId: 1,
+    receiverId: 4,
+    shopId: 1,
+    text: "Chào shop, cuốn Đắc Nhân Tâm này là bản bìa cứng hay mềm vậy shop?",
+    createdAt: "09:15",
+    isFromCustomer: true,
+    senderName: "Nguyễn Văn An",
+  },
+  {
+    id: 2,
+    senderId: 4,
+    receiverId: 1,
+    shopId: 1,
+    text: "Dạ chào bạn An, đây là bản bìa mềm có tay gập chính hãng của NXB Tổng Hợp TP.HCM ạ!",
+    createdAt: "09:18",
+    isFromCustomer: false,
+    senderName: "Nhà sách Phương Nam",
   },
 ];
