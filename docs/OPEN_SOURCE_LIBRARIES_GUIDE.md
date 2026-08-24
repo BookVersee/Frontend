@@ -65,12 +65,16 @@ references/shadcn-admin/
 # 1. Di chuyển vào thư mục tham khảo
 cd /Users/nguyenvanminhtam/Frontend/references/shadcn-admin
 
-# 2. Cài đặt các thư viện phụ thuộc bằng pnpm (hoặc npm)
+# 2. Cài đặt các thư viện phụ thuộc và gói react-is
 npm install --legacy-peer-deps
+npm install react-is
 
 # 3. Khởi chạy dev server trên cổng riêng (ví dụ: 5174)
 npm run dev
 ```
+
+> **Ghi chú khắc phục lỗi:** Gói biểu đồ `recharts` trong dự án có phụ thuộc ngầm vào `react-is`. Lệnh `npm install react-is` đã giải quyết triệt để lỗi `[plugin:vite:import-analysis] Failed to resolve import "react-is"`.
+
 
 ---
 
@@ -144,20 +148,22 @@ Khác với khung chat nhắn tin người-với-người thông thường (`Cha
 
 ---
 
-### 3.2. Hướng dẫn cài đặt & Chạy thử nghiệm
+### 3.2. Hướng dẫn cài đặt & Chạy thử nghiệm giao diện AI Chat
 
-Để khám phá mã nguồn `assistant-ui`:
+Để xem trực tiếp giao diện Chatbot AI mẫu, bạn chỉ cần mở Terminal và chạy 2 lệnh sau:
 
 ```bash
-# 1. Di chuyển vào thư mục tham khảo
-cd /Users/nguyenvanminhtam/Frontend/references/assistant-ui
+# 1. Di chuyển vào thư mục ứng dụng demo mẫu
+cd /Users/nguyenvanminhtam/Frontend/references/assistant-ui/examples/with-generative-ui
 
-# 2. Cài đặt dependencies
-npm install
-
-# 3. Xem các ví dụ mẫu
-npm run build
+# 2. Khởi chạy dev server
+npm run dev
 ```
+
+> 🌐 **Truy cập giao diện Web:** Mở trình duyệt tại **`http://localhost:3000`** để trải nghiệm giao diện Chatbot AI với hiệu ứng Generative UI thời gian thực!
+
+
+
 
 ---
 
