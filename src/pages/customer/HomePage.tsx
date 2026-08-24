@@ -1,21 +1,22 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Search, ShoppingCart, Star, BookOpen } from "lucide-react";
+import { Search, ShoppingCart, Star, BookOpen, Store } from "lucide-react";
 import { Book, Category } from "../../types";
 import { bookService } from "../../services/bookService";
 import { BookCover } from "../../components/common/BookCover";
 import { fmt } from "../../utils/format";
 import { useCart } from "../../contexts/CartContext";
-
 import { FeaturedShops } from "../../components/customer/FeaturedShops";
 
 interface HomePageProps {
   onSelectBook: (book: Book) => void;
   onGoToCart: () => void;
+  onSelectShop?: (shopId: number) => void;
 }
 
 export const HomePage: React.FC<HomePageProps> = ({
   onSelectBook,
   onGoToCart,
+  onSelectShop,
 }) => {
   const [books, setBooks] = useState<Book[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -49,7 +50,8 @@ export const HomePage: React.FC<HomePageProps> = ({
         (search === "" ||
           b.title.toLowerCase().includes(search.toLowerCase()) ||
           b.author.toLowerCase().includes(search.toLowerCase()) ||
-          b.shopName.toLowerCase().includes(search.toLowerCase()))
+          b.shopName.toLowerCase().includes(search.toLowerCase()) ||
+          (b.isbn && b.isbn.includes(search)))
     );
   }, [books, search, selectedCatId]);
 
@@ -70,7 +72,7 @@ export const HomePage: React.FC<HomePageProps> = ({
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Tìm kiếm sách, tác giả, nhà xuất bản, shop..."
+              placeholder="Tìm kiếm sách, tác giả, nhà xuất bản, tên shop, mã ISBN..."
               className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 bg-slate-50 transition-colors"
             />
           </div>
@@ -155,17 +157,16 @@ export const HomePage: React.FC<HomePageProps> = ({
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
             {filteredBooks.map((book) => (
-              <button
+              <div
                 key={book.id}
-                onClick={() => onSelectBook(book)}
-                className="bg-white rounded-2xl border border-slate-200 p-3 text-left hover:shadow-md hover:border-blue-300 transition-all group flex flex-col justify-between cursor-pointer"
+                className="bg-white rounded-2xl border border-slate-200 p-3 hover:shadow-md hover:border-blue-300 transition-all group flex flex-col justify-between"
               >
-                <div>
+                <div
+                  onClick={() => onSelectBook(book)}
+                  className="cursor-pointer"
+                >
                   <BookCover book={book} size="md" />
                   <div className="mt-3">
-                    <p className="text-[11px] font-medium text-slate-400 truncate">
-                      {book.shopName}
-                    </p>
                     <p className="font-semibold text-slate-800 text-sm leading-snug line-clamp-2 mt-0.5 group-hover:text-blue-600 transition-colors">
                       {book.title}
                     </p>
@@ -176,14 +177,23 @@ export const HomePage: React.FC<HomePageProps> = ({
                 </div>
 
                 <div className="mt-3 pt-2 border-t border-slate-100">
-                  <div className="flex items-center gap-1 mb-1.5">
-                    <Star size={12} fill="#f59e0b" stroke="none" />
-                    <span className="text-xs font-semibold text-slate-700">
-                      {book.rating}
-                    </span>
-                    <span className="text-xs text-slate-400">
-                      ({book.reviewCount})
-                    </span>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (onSelectShop) onSelectShop(book.shopId);
+                      }}
+                      className="text-[11px] font-medium text-slate-500 hover:text-blue-600 truncate flex items-center gap-1 cursor-pointer"
+                    >
+                      <Store size={11} className="text-slate-400" />
+                      {book.shopName}
+                    </button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Star size={11} fill="#f59e0b" stroke="none" />
+                      <span className="text-xs font-semibold text-slate-700">
+                        {book.rating}
+                      </span>
+                    </div>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-blue-600 text-sm sm:text-base">
@@ -196,7 +206,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                     )}
                   </div>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         )}

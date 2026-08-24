@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Truck, Package, Clock } from "lucide-react";
-import { Order } from "../../types";
+import { Order, OrderStatus } from "../../types";
 import { orderService } from "../../services/orderService";
 import { useAuth } from "../../contexts/AuthContext";
 import { orderStatusInfo } from "../../utils/status";
@@ -19,6 +19,7 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({
   const { user } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<"ALL" | OrderStatus>("ALL");
 
   useEffect(() => {
     setLoading(true);
@@ -27,6 +28,20 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({
       .then(setOrders)
       .finally(() => setLoading(false));
   }, [user?.id]);
+
+  const tabs: { key: "ALL" | OrderStatus; label: string }[] = [
+    { key: "ALL", label: "Tất cả" },
+    { key: "PENDING", label: "Chờ xác nhận" },
+    { key: "PROCESSING", label: "Đang xử lý" },
+    { key: "SHIPPED", label: "Đang giao" },
+    { key: "DELIVERED", label: "Đã giao" },
+    { key: "CANCELLED", label: "Đã hủy" },
+    { key: "RETURNED", label: "Đổi trả" },
+  ];
+
+  const filteredOrders = orders.filter((o) =>
+    statusFilter === "ALL" ? true : o.orderStatus === statusFilter
+  );
 
   return (
     <div className="max-w-3xl mx-auto px-6 py-8">
@@ -39,6 +54,38 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({
         </span>
       </div>
 
+      {/* Filter Tabs */}
+      <div className="flex gap-2 mb-6 overflow-x-auto pb-2 scrollbar-thin">
+        {tabs.map((t) => {
+          const count =
+            t.key === "ALL"
+              ? orders.length
+              : orders.filter((o) => o.orderStatus === t.key).length;
+          return (
+            <button
+              key={t.key}
+              onClick={() => setStatusFilter(t.key)}
+              className={`px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                statusFilter === t.key
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+              }`}
+            >
+              <span>{t.label}</span>
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                  statusFilter === t.key
+                    ? "bg-white/20 text-white"
+                    : "bg-slate-100 text-slate-500"
+                }`}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       {loading ? (
         <div className="space-y-4">
           {[1, 2, 3].map((i) => (
@@ -48,11 +95,11 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({
             />
           ))}
         </div>
-      ) : orders.length === 0 ? (
+      ) : filteredOrders.length === 0 ? (
         <div className="text-center py-20 bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
           <Package size={48} className="mx-auto mb-3 text-slate-300" />
           <h3 className="font-bold text-slate-700 text-base">
-            Chưa có đơn hàng nào
+            Không có đơn hàng nào trong mục này
           </h3>
           <p className="text-xs text-slate-400 mt-1">
             Các đơn hàng bạn đã đặt sẽ xuất hiện tại đây để tiện theo dõi.
@@ -60,7 +107,7 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({
         </div>
       ) : (
         <div className="space-y-4">
-          {orders.map((order) => {
+          {filteredOrders.map((order) => {
             const si = orderStatusInfo(order.orderStatus);
             return (
               <button
@@ -108,8 +155,7 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({
                         {order.items.map((i) => i.book.title).join(", ")}
                       </p>
                       <p className="text-xs text-slate-400 mt-1">
-                        Tổng số lượng:{" "}
-                        {order.items.reduce((s, i) => s + i.quantity, 0)} cuốn sách
+                        Shop: <strong className="text-slate-700">{order.shopName || "Nhà sách đối tác"}</strong> • {order.items.reduce((s, i) => s + i.quantity, 0)} cuốn sách
                       </p>
                       <p className="text-base font-extrabold text-blue-600 mt-2">
                         {fmt(order.totalAmount + order.shippingFee)}
