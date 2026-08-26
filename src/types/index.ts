@@ -25,15 +25,15 @@ export type DisputeLevel = "OPEN" | "PROCESSING" | "CLOSED";
 export type UserStatus = "ACTIVE" | "LOCKED";
 
 export interface Category {
-  id: number;
+  id: string | number;
   name: string;
 }
 
 export interface Book {
-  id: number;
-  shopId: number;
+  id: string | number;
+  shopId: string | number;
   shopName: string;
-  categoryId: number;
+  categoryId: string | number;
   title: string;
   author: string;
   publisher: string;
@@ -100,11 +100,11 @@ export interface ReturnRequest {
 }
 
 export interface Order {
-  id: number;
-  customerId: number;
+  id: string | number;
+  customerId: string | number;
   customerName: string;
   customerPhone: string;
-  shopId: number;
+  shopId: string | number;
   shopName?: string;
   items: OrderItem[];
   totalAmount: number;
@@ -122,7 +122,7 @@ export interface Order {
 }
 
 export interface Transaction {
-  id: number;
+  id: string | number;
   orderId: number;
   userId?: number;
   amount: number;
@@ -134,7 +134,7 @@ export interface Transaction {
 }
 
 export interface DeliveryTask {
-  id: number;
+  id: string | number;
   orderId: number;
   trackingNumber: string;
   customer: string;
@@ -149,11 +149,11 @@ export interface DeliveryTask {
 }
 
 export interface User {
-  id: number;
+  id: string | number;
   name: string;
   email: string;
   role: Role;
-  shopId?: number;
+  shopId?: string | number;
   shopName?: string;
   phone?: string;
   address?: string;
@@ -165,8 +165,8 @@ export interface User {
 }
 
 export interface Shop {
-  id: number;
-  ownerId: number;
+  id: string | number;
+  ownerId: string | number;
   name: string;
   email: string;
   phone: string;
@@ -181,7 +181,7 @@ export interface Shop {
 }
 
 export interface AppNotification {
-  id: number;
+  id: string | number;
   userId: number;
   title: string;
   message: string;
@@ -192,10 +192,10 @@ export interface AppNotification {
 }
 
 export interface ChatMessage {
-  id: number;
+  id: string | number;
   senderId: number;
   receiverId: number;
-  shopId?: number;
+  shopId?: string | number;
   text: string;
   createdAt: string;
   isFromCustomer: boolean;

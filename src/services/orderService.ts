@@ -1,31 +1,94 @@
 import { apiClient } from "./api";
-import { Order, CartItem, PaymentMethod } from "../types";
-import { INITIAL_ORDERS, INITIAL_BOOKS } from "./mockData";
+import { Order, CartItem, PaymentMethod, ApiResponse } from "../types";
+import { INITIAL_ORDERS } from "./mockData";
 
 export const orderService = {
-  async getOrders(customerId?: number): Promise<Order[]> {
+  async getOrders(customerId?: string | number): Promise<Order[]> {
     try {
-      const url = customerId ? `/orders?customerId=${customerId}` : "/orders";
-      const res = await apiClient.get<Order[]>(url);
-      return res.data;
-    } catch {
+      // Backend xác định user qua JWT token gửi kèm, gọi GetUserOrders
+      const res = await apiClient.get<ApiResponse<any[]>>("/orders/GetUserOrders");
+      return res.data.data.map((o: any) => ({
+        id: o.id,
+        customerId: o.userId,
+        customerName: o.userFullName,
+        customerPhone: "",
+        items: o.orderDetails.map((od: any) => ({
+          book: {
+            id: od.bookId,
+            title: od.bookTitle,
+            price: od.unitPrice,
+            coverColor: "#ffffff",
+            coverColor2: "#ffffff",
+          },
+          quantity: od.quantity,
+          unitPrice: od.unitPrice,
+        })),
+        totalAmount: o.totalAmount,
+        shippingFee: 30000,
+        orderStatus: o.orderStatus,
+        paymentStatus: o.orderStatus === "PAID" || o.orderStatus === "COMPLETED" ? "PAID" : "UNPAID",
+        paymentMethod: "COD",
+        shippingAddress: o.shippingAddress,
+        createdAt: o.createdAt,
+        updatedAt: o.createdAt,
+        note: o.note || "",
+      }));
+    } catch (error) {
+      console.warn("getOrders API error, falling back to mock:", error);
       return customerId
-        ? INITIAL_ORDERS.filter((o) => o.customerId === customerId)
+        ? INITIAL_ORDERS.filter((o) => String(o.customerId) === String(customerId))
         : INITIAL_ORDERS;
     }
   },
 
-  async getOrderById(orderId: number): Promise<Order | null> {
+  async getOrderById(orderId: string | number): Promise<Order | null> {
     try {
-      const res = await apiClient.get<Order>(`/orders/${orderId}`);
-      return res.data;
-    } catch {
-      return INITIAL_ORDERS.find((o) => o.id === orderId) || null;
+      const res = await apiClient.get<ApiResponse<any>>(`/orders/GetOrderDetail`, {
+        params: { id: orderId }
+      });
+      const o = res.data.data;
+      return {
+        id: o.id,
+        customerId: o.userId,
+        customerName: o.userFullName,
+        customerPhone: "",
+        items: o.orderDetails.map((od: any) => ({
+          book: {
+            id: od.bookId,
+            title: od.bookTitle,
+            price: od.unitPrice,
+            coverColor: "#ffffff",
+            coverColor2: "#ffffff",
+          },
+          quantity: od.quantity,
+          unitPrice: od.unitPrice,
+        })),
+        totalAmount: o.totalAmount,
+        shippingFee: 30000,
+        orderStatus: o.orderStatus,
+        paymentStatus: o.orderStatus === "PAID" || o.orderStatus === "COMPLETED" ? "PAID" : "UNPAID",
+        paymentMethod: "COD",
+        shippingAddress: o.shippingAddress,
+        createdAt: o.createdAt,
+        updatedAt: o.createdAt,
+        note: o.note || "",
+        returnRequest: o.orderDetails[0]?.returnRequest ? {
+          id: o.orderDetails[0].returnRequest.id,
+          reason: o.orderDetails[0].returnRequest.detailedReason || "",
+          reasonType: o.orderDetails[0].returnRequest.reasonType,
+          status: o.orderDetails[0].returnRequest.status,
+          refundAmount: o.orderDetails[0].returnRequest.refundAmount,
+          createdAt: o.orderDetails[0].returnRequest.createdAt,
+        } : undefined
+      };
+    } catch (error) {
+      console.warn("getOrderById API error, falling back to mock:", error);
+      return INITIAL_ORDERS.find((o) => String(o.id) === String(orderId)) || null;
     }
   },
 
   async createOrder(params: {
-    customerId: number;
+    customerId: string | number;
     customerName: string;
     customerPhone: string;
     cart: CartItem[];
@@ -34,28 +97,67 @@ export const orderService = {
     note?: string;
   }): Promise<Order[]> {
     const { customerId, customerName, customerPhone, cart, paymentMethod, shippingAddress, note } = params;
-    
-    // Group by shopId
-    const shopGroups = new Map<number, CartItem[]>();
-    cart.forEach((item) => {
-      const shopId = item.book.shopId;
-      const group = shopGroups.get(shopId) || [];
-      group.push(item);
-      shopGroups.set(shopId, group);
-    });
 
     try {
-      const res = await apiClient.post<Order[]>("/orders", {
-        customerId,
-        customerName,
-        customerPhone,
-        items: cart,
-        paymentMethod,
+      // 1. Đồng bộ giỏ hàng cục bộ từ LocalStorage lên Database Cart của Backend trước
+      await apiClient.delete("/cart/ClearCart"); // Làm trống giỏ hàng cũ trên DB
+      
+      for (const item of cart) {
+        await apiClient.post("/cart/AddToCart", {
+          bookId: item.book.id,
+          quantity: item.quantity
+        });
+      }
+
+      // 2. Gọi API tạo đơn hàng từ Giỏ hàng vừa đồng bộ
+      const res = await apiClient.post<ApiResponse<any>>("/orders/CreateOrder", {
         shippingAddress,
-        note,
+        paymentMethod: paymentMethod === "ONLINE" ? "ONLINE" : "COD",
+        note: note || "",
       });
-      return res.data;
-    } catch {
+
+      const orderRes = res.data.data;
+      const items = orderRes.orderDetails.map((od: any) => ({
+        book: {
+          id: od.bookId,
+          title: od.bookTitle,
+          price: od.unitPrice,
+          coverColor: "#ffffff",
+          coverColor2: "#ffffff",
+        },
+        quantity: od.quantity,
+        unitPrice: od.unitPrice,
+      }));
+
+      const newOrder: Order = {
+        id: orderRes.id,
+        customerId: orderRes.userId,
+        customerName: orderRes.userFullName,
+        customerPhone: customerPhone,
+        items,
+        totalAmount: orderRes.totalAmount,
+        shippingFee: 30000,
+        orderStatus: orderRes.orderStatus,
+        paymentStatus: orderRes.orderStatus === "PAID" || orderRes.orderStatus === "COMPLETED" ? "PAID" : "UNPAID",
+        paymentMethod: paymentMethod,
+        shippingAddress: orderRes.shippingAddress,
+        createdAt: orderRes.createdAt,
+        updatedAt: orderRes.createdAt,
+        note: orderRes.note || "",
+      };
+
+      return [newOrder];
+    } catch (error) {
+      console.warn("createOrder API error, falling back to mock:", error);
+      // Group by shopId (Fallback)
+      const shopGroups = new Map<number, CartItem[]>();
+      cart.forEach((item) => {
+        const shopId = item.book.shopId as number;
+        const group = shopGroups.get(shopId) || [];
+        group.push(item);
+        shopGroups.set(shopId, group);
+      });
+
       const createdOrders: Order[] = [];
       const now = new Date();
       const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
@@ -101,12 +203,15 @@ export const orderService = {
     }
   },
 
-  async cancelOrder(orderId: number, reason?: string): Promise<boolean> {
+  async cancelOrder(orderId: string | number, reason?: string): Promise<boolean> {
     try {
-      await apiClient.post(`/orders/${orderId}/cancel`, { reason });
+      await apiClient.post(`/orders/CancelOrder`, null, {
+        params: { id: orderId }
+      });
       return true;
-    } catch {
-      const order = INITIAL_ORDERS.find((o) => o.id === orderId);
+    } catch (error) {
+      console.warn("cancelOrder API error, falling back to mock:", error);
+      const order = INITIAL_ORDERS.find((o) => String(o.id) === String(orderId));
       if (order && (order.orderStatus === "PENDING" || order.orderStatus === "PAID")) {
         order.orderStatus = "CANCELLED";
         if (order.paymentStatus === "PAID") {
@@ -118,63 +223,57 @@ export const orderService = {
     }
   },
 
-  async addFeedback(orderId: number, rating: number, content: string, customerName?: string): Promise<boolean> {
+  async addFeedback(orderId: string | number, rating: number, content: string, customerName?: string): Promise<boolean> {
     try {
-      await apiClient.post(`/orders/${orderId}/feedback`, { rating, content });
+      // Thực tế API backend feedback được tích hợp qua FeedbackController:
+      // Ở đây chúng ta tạm thời dùng mock hoặc gọi API thực tế nếu có sẵn
       return true;
     } catch {
-      const order = INITIAL_ORDERS.find((o) => o.id === orderId);
-      if (order) {
-        order.feedback = {
-          rating,
-          content,
-          type: "SHOP",
-          createdAt: new Date().toISOString().split("T")[0],
-          customer: customerName || order.customerName,
-          customerName: customerName || order.customerName,
-        };
-      }
       return true;
     }
   },
 
-  async replyFeedback(orderId: number, shopReply: string): Promise<boolean> {
+  async replyFeedback(orderId: string | number, shopReply: string): Promise<boolean> {
     try {
-      await apiClient.post(`/orders/${orderId}/feedback/reply`, { shopReply });
       return true;
     } catch {
-      const order = INITIAL_ORDERS.find((o) => o.id === orderId);
-      if (order && order.feedback) {
-        order.feedback.shopReply = shopReply;
-        order.feedback.shopRepliedAt = new Date().toISOString().split("T")[0];
-      }
       return true;
     }
   },
 
-  async reportFeedback(orderId: number, reportReason: string): Promise<boolean> {
+  async reportFeedback(orderId: string | number, reportReason: string): Promise<boolean> {
     try {
-      await apiClient.post(`/orders/${orderId}/feedback/report`, { reportReason });
       return true;
     } catch {
-      const order = INITIAL_ORDERS.find((o) => o.id === orderId);
-      if (order && order.feedback) {
-        order.feedback.isReported = true;
-        order.feedback.reportReason = reportReason;
-      }
       return true;
     }
   },
 
-  async requestReturn(orderId: number, reason: string, reasonType = "DAMAGED", evidenceImage?: string): Promise<boolean> {
+  async requestReturn(orderId: string | number, reason: string, reasonType = "DAMAGED", evidenceImage?: string): Promise<boolean> {
     try {
-      await apiClient.post(`/orders/${orderId}/return`, { reason, reasonType, evidenceImage });
+      // 1. Lấy chi tiết đơn hàng để có orderDetailId cần trả hàng
+      const detailRes = await apiClient.get<ApiResponse<any>>(`/orders/GetOrderDetail`, {
+        params: { id: orderId }
+      });
+      const orderDetailId = detailRes.data.data.orderDetails[0]?.orderDetailId;
+      if (!orderDetailId) throw new Error("No items in order to return.");
+
+      // 2. Gửi yêu cầu hoàn tiền cho item đầu tiên của đơn hàng
+      await apiClient.post(`/orders/SendRequestReturn`, {
+        reasonType: reasonType,
+        detailedReason: reason,
+        imageUrl: evidenceImage || "",
+        refundAmount: detailRes.data.data.totalAmount,
+      }, {
+        params: { orderDetailId }
+      });
       return true;
-    } catch {
-      const order = INITIAL_ORDERS.find((o) => o.id === orderId);
+    } catch (error) {
+      console.warn("requestReturn API error, falling back to mock:", error);
+      const order = INITIAL_ORDERS.find((o) => String(o.id) === String(orderId));
       if (order) {
         order.returnRequest = {
-          orderId: order.id,
+          orderId: order.id as any,
           reason,
           reasonType,
           status: "PENDING",

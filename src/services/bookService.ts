@@ -1,27 +1,61 @@
 import { apiClient } from "./api";
-import { Book, Category, Shop } from "../types";
+import { Book, Category, Shop, ApiResponse } from "../types";
 import { INITIAL_BOOKS, INITIAL_CATEGORIES, INITIAL_SHOPS } from "./mockData";
 
 export const bookService = {
   async getCategories(): Promise<Category[]> {
     try {
-      const res = await apiClient.get<Category[]>("/categories");
-      return res.data;
-    } catch {
+      // Gọi API lấy danh mục thực tế của Backend
+      const res = await apiClient.get<ApiResponse<any[]>>("/categories/GetCategories");
+      return res.data.data.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+      }));
+    } catch (error) {
+      console.warn("getCategories API error, falling back to mock:", error);
       return INITIAL_CATEGORIES;
     }
   },
 
-  async getBooks(search?: string, categoryId?: number): Promise<Book[]> {
+  async getBooks(search?: string, categoryId?: string | number): Promise<Book[]> {
     try {
-      const res = await apiClient.get<Book[]>("/books", {
-        params: { search, categoryId },
+      const params: any = {
+        page: 1,
+        pageSize: 100, // lấy danh sách đủ nhiều để hiển thị
+      };
+      if (search && search.trim()) params.keyword = search;
+      if (categoryId && categoryId !== "0" && categoryId !== 0) params.categoryId = categoryId;
+
+      const res = await apiClient.get<ApiResponse<any>>("/shop/FindBooks", {
+        params,
       });
-      return res.data;
-    } catch {
+
+      const pagedData = res.data.data;
+      const items = pagedData.items || [];
+      return items.map((b: any) => ({
+        id: b.id,
+        shopId: b.shopId,
+        shopName: b.shopName,
+        categoryId: b.categoryId,
+        title: b.title,
+        author: b.author || "Chưa rõ tác giả",
+        publisher: b.publisher || "NXB Cập nhật",
+        price: b.price,
+        stock: b.stockQuantity,
+        rating: b.rating || 0,
+        reviewCount: 0,
+        description: b.description || "",
+        coverColor: "#ffffff",
+        coverColor2: "#ffffff",
+        status: b.status === "ACTIVE" ? "ACTIVE" : b.status === "EMPTY" ? "OUT_OF_STOCK" : "HIDDEN",
+        isbn: b.isbn,
+        publishedYear: b.publishedYear,
+      }));
+    } catch (error) {
+      console.warn("getBooks API error, falling back to mock:", error);
       let result = INITIAL_BOOKS.filter((b) => b.status !== "HIDDEN");
-      if (categoryId && categoryId > 0) {
-        result = result.filter((b) => b.categoryId === categoryId);
+      if (categoryId && categoryId !== "0" && categoryId !== 0) {
+        result = result.filter((b) => String(b.categoryId) === String(categoryId));
       }
       if (search && search.trim()) {
         const q = search.toLowerCase().trim();
@@ -37,54 +71,117 @@ export const bookService = {
     }
   },
 
-  async getBookById(id: number): Promise<Book | null> {
+  async getBookById(id: string | number): Promise<Book | null> {
     try {
-      const res = await apiClient.get<Book>(`/books/${id}`);
-      return res.data;
-    } catch {
-      const b = INITIAL_BOOKS.find((item) => item.id === id);
+      const res = await apiClient.get<ApiResponse<any>>(`/shop/GetBookDetail`, {
+        params: { id }
+      });
+      const b = res.data.data;
+      return {
+        id: b.id,
+        shopId: b.shopId,
+        shopName: b.shopName,
+        categoryId: b.categoryId,
+        title: b.title,
+        author: b.author || "Chưa rõ tác giả",
+        publisher: b.publisher || "NXB Cập nhật",
+        price: b.price,
+        stock: b.stockQuantity,
+        rating: b.rating || 0,
+        reviewCount: 0,
+        description: b.description || "",
+        coverColor: "#ffffff",
+        coverColor2: "#ffffff",
+        status: b.status === "ACTIVE" ? "ACTIVE" : b.status === "EMPTY" ? "OUT_OF_STOCK" : "HIDDEN",
+        isbn: b.isbn,
+        publishedYear: b.publishedYear,
+      };
+    } catch (error) {
+      console.warn("getBookById API error, falling back to mock:", error);
+      const b = INITIAL_BOOKS.find((item) => String(item.id) === String(id));
       return b || null;
     }
   },
 
-  async getBooksByShop(shopId: number): Promise<Book[]> {
+  async getBooksByShop(shopId: string | number): Promise<Book[]> {
     try {
-      const res = await apiClient.get<Book[]>(`/shops/${shopId}/books`);
-      return res.data;
-    } catch {
-      return INITIAL_BOOKS.filter((b) => b.shopId === shopId);
+      const res = await apiClient.get<ApiResponse<any[]>>(`/shop/GetBooksByShop`, {
+        params: { shopId }
+      });
+      return res.data.data.map((b: any) => ({
+        id: b.id,
+        shopId: b.shopId,
+        shopName: b.shopName,
+        categoryId: b.categoryId,
+        title: b.title,
+        author: b.author || "Chưa rõ tác giả",
+        publisher: b.publisher || "NXB Cập nhật",
+        price: b.price,
+        stock: b.stockQuantity,
+        rating: b.rating || 0,
+        reviewCount: 0,
+        description: b.description || "",
+        coverColor: "#ffffff",
+        coverColor2: "#ffffff",
+        status: b.status === "ACTIVE" ? "ACTIVE" : b.status === "EMPTY" ? "OUT_OF_STOCK" : "HIDDEN",
+        isbn: b.isbn,
+        publishedYear: b.publishedYear,
+      }));
+    } catch (error) {
+      console.warn("getBooksByShop API error, falling back to mock:", error);
+      return INITIAL_BOOKS.filter((b) => String(b.shopId) === String(shopId));
     }
   },
 
-  async getShopProfile(shopId: number): Promise<Shop | null> {
+  async getShopProfile(shopId: string | number): Promise<Shop | null> {
     try {
-      const res = await apiClient.get<Shop>(`/shops/${shopId}`);
-      return res.data;
-    } catch {
-      return INITIAL_SHOPS.find((s) => s.id === shopId) || null;
+      const res = await apiClient.get<ApiResponse<any>>(`/shop/GetShopProfile`, {
+        params: { shopId }
+      });
+      const s = res.data.data;
+      return {
+        id: s.id,
+        ownerId: s.userId,
+        name: s.shopName,
+        email: "shop@email.com",
+        phone: s.phone || "",
+        address: s.address || "",
+        description: "",
+        status: s.condition === "ACTIVE" || s.condition === "OPEN" ? "ACTIVE" : "PENDING",
+        rating: s.rating || 0,
+        reviewCount: 0,
+        bookCount: 0,
+        joinedDate: s.createdAt,
+      };
+    } catch (error) {
+      console.warn("getShopProfile API error, falling back to mock:", error);
+      return INITIAL_SHOPS.find((s) => String(s.id) === String(shopId)) || null;
     }
   },
 
   async createBook(bookData: Omit<Book, "id">): Promise<Book> {
     try {
-      const res = await apiClient.post<Book>("/books", bookData);
-      return res.data;
-    } catch {
+      // Note: Backend post to CreateBook might require shop specific controller, but since we have mock option:
+      const res = await apiClient.post<ApiResponse<any>>("/books", bookData);
+      return res.data.data;
+    } catch (error) {
+      console.warn("createBook API error, falling back to mock:", error);
       const newBook: Book = {
         ...bookData,
-        id: Date.now(),
+        id: Date.now() as any,
       };
       INITIAL_BOOKS.unshift(newBook);
       return newBook;
     }
   },
 
-  async updateBook(id: number, bookData: Partial<Book>): Promise<Book> {
+  async updateBook(id: string | number, bookData: Partial<Book>): Promise<Book> {
     try {
-      const res = await apiClient.put<Book>(`/books/${id}`, bookData);
-      return res.data;
-    } catch {
-      const idx = INITIAL_BOOKS.findIndex((b) => b.id === id);
+      const res = await apiClient.put<ApiResponse<any>>(`/books/${id}`, bookData);
+      return res.data.data;
+    } catch (error) {
+      console.warn("updateBook API error, falling back to mock:", error);
+      const idx = INITIAL_BOOKS.findIndex((b) => String(b.id) === String(id));
       if (idx !== -1) {
         INITIAL_BOOKS[idx] = { ...INITIAL_BOOKS[idx], ...bookData };
         return INITIAL_BOOKS[idx];
@@ -93,12 +190,13 @@ export const bookService = {
     }
   },
 
-  async deleteBook(id: number): Promise<boolean> {
+  async deleteBook(id: string | number): Promise<boolean> {
     try {
       await apiClient.delete(`/books/${id}`);
       return true;
-    } catch {
-      const idx = INITIAL_BOOKS.findIndex((b) => b.id === id);
+    } catch (error) {
+      console.warn("deleteBook API error, falling back to mock:", error);
+      const idx = INITIAL_BOOKS.findIndex((b) => String(b.id) === String(id));
       if (idx !== -1) {
         INITIAL_BOOKS[idx].status = "HIDDEN";
       }
