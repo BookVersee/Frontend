@@ -3,6 +3,16 @@ import { User, AuthResponse, Role, Shop, ApiResponse } from "../types";
 import { DEMO_USERS, INITIAL_SHOPS } from "./mockData";
 import { setStoredToken, setStoredUser, removeStoredToken, getStoredUser } from "../utils/storage";
 
+export interface RegisterData {
+  username?: string;
+  name: string;
+  email: string;
+  password?: string;
+  role?: Role;
+  phone?: string;
+  address?: string;
+}
+
 export const authService = {
   async login(email: string, _password?: string): Promise<AuthResponse> {
     try {
@@ -54,21 +64,38 @@ export const authService = {
   },
 
   async register(
-    name: string,
-    email: string,
+    data: RegisterData | string,
+    email?: string,
     role: Role = "customer",
     phone?: string,
-    address?: string
+    address?: string,
+    password?: string
   ): Promise<AuthResponse> {
+    const payload: RegisterData =
+      typeof data === "string"
+        ? {
+            name: data,
+            email: email || "",
+            role,
+            phone,
+            address,
+            password: password || "Password123!",
+          }
+        : data;
+
+    const username = payload.username || payload.email.split("@")[0];
+    const userPassword = payload.password || "Password123!";
+    const userRole = payload.role || "customer";
+
     try {
       const response = await apiClient.post<ApiResponse<any>>("/auth/register", {
-        username: email.split("@")[0],
-        email: email,
-        password: "Password123!", // mật khẩu mặc định cho các tài khoản đăng ký nhanh
-        fullName: name,
-        phone: phone || "",
-        address: address || "",
-        role: role.toUpperCase(), // Backend Role dạng UPPERCASE
+        username: username,
+        email: payload.email,
+        password: userPassword,
+        fullName: payload.name,
+        phone: payload.phone || "",
+        address: payload.address || "",
+        role: userRole.toUpperCase(), // Backend Role dạng UPPERCASE
       });
 
       const tokenResponse = response.data.data;
@@ -92,11 +119,11 @@ export const authService = {
       console.warn("Register API error, falling back to mock:", error);
       const user: User = {
         id: Date.now(),
-        name,
-        email,
-        role,
-        phone: phone || "0901234567",
-        address: address || "TP. Hồ Chí Minh",
+        name: payload.name,
+        email: payload.email,
+        role: userRole,
+        phone: payload.phone || "0901234567",
+        address: payload.address || "TP. Hồ Chí Minh",
         status: "ACTIVE",
         balance: 0,
         createdAt: new Date().toLocaleDateString("vi-VN"),

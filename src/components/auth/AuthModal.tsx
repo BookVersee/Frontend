@@ -6,7 +6,22 @@ import { useAuth } from "../../contexts/AuthContext";
 import { Role } from "../../types";
 import { ROLE_COLORS, ROLE_LABELS } from "../../utils/status";
 import { DEMO_USERS } from "../../services/mockData";
-import { Check, LogIn, UserPlus, ArrowLeft, Loader2, PlusCircle } from "lucide-react";
+import {
+  Check,
+  LogIn,
+  UserPlus,
+  ArrowLeft,
+  Loader2,
+  PlusCircle,
+  Eye,
+  EyeOff,
+  User as UserIcon,
+  Mail,
+  Lock,
+  Phone,
+  MapPin,
+  AtSign,
+} from "lucide-react";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -34,11 +49,25 @@ const GOOGLE_SAMPLE_ACCOUNTS = [
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const { login, loginWithGoogle, register } = useAuth();
   const [tab, setTab] = useState<"login" | "register">("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [role, setRole] = useState<Role>("customer");
+
+  // Login form state
+  const [loginEmailOrUser, setLoginEmailOrUser] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+
+  // Register form state
+  const [regUsername, setRegUsername] = useState("");
+  const [regFullName, setRegFullName] = useState("");
+  const [regEmail, setRegEmail] = useState("");
+  const [regPassword, setRegPassword] = useState("");
+  const [regConfirmPassword, setRegConfirmPassword] = useState("");
+  const [regPhone, setRegPhone] = useState("");
+  const [regAddress, setRegAddress] = useState("");
+  const [regRole, setRegRole] = useState<Role>("customer");
+  const [showRegPassword, setShowRegPassword] = useState(false);
+  const [showRegConfirmPassword, setShowRegConfirmPassword] = useState(false);
+
+  // Common & Google states
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [showGooglePicker, setShowGooglePicker] = useState(false);
@@ -46,19 +75,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [showCustomGoogleInput, setShowCustomGoogleInput] = useState(false);
   const [error, setError] = useState("");
 
+  const resetFormState = () => {
+    setError("");
+    setShowGooglePicker(false);
+    setShowCustomGoogleInput(false);
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) {
-      setError("Vui lòng nhập email");
+    if (!loginEmailOrUser.trim()) {
+      setError("Vui lòng nhập Tên đăng nhập hoặc Email");
       return;
     }
     setError("");
     setLoading(true);
     try {
-      await login(email, password);
+      await login(loginEmailOrUser.trim(), loginPassword);
       onClose();
-    } catch {
-      setError("Đăng nhập không thành công");
+    } catch (err: any) {
+      setError(err?.message || "Đăng nhập không thành công. Vui lòng kiểm tra lại thông tin.");
     } finally {
       setLoading(false);
     }
@@ -66,17 +101,44 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !email) {
-      setError("Vui lòng điền đầy đủ họ tên và email");
+    if (!regFullName.trim()) {
+      setError("Vui lòng nhập Họ và tên đầy đủ");
       return;
     }
+    if (!regEmail.trim() || !regEmail.includes("@")) {
+      setError("Vui lòng nhập địa chỉ Email hợp lệ");
+      return;
+    }
+    if (!regPassword) {
+      setError("Vui lòng thiết lập Mật khẩu");
+      return;
+    }
+    if (regPassword.length < 6) {
+      setError("Mật khẩu phải có tối thiểu 6 ký tự");
+      return;
+    }
+    if (regPassword !== regConfirmPassword) {
+      setError("Mật khẩu xác nhận không trùng khớp");
+      return;
+    }
+
+    const finalUsername = regUsername.trim() || regEmail.trim().split("@")[0];
+
     setError("");
     setLoading(true);
     try {
-      await register(name, email, role, phone);
+      await register({
+        username: finalUsername,
+        name: regFullName.trim(),
+        email: regEmail.trim().toLowerCase(),
+        password: regPassword,
+        role: regRole,
+        phone: regPhone.trim() || undefined,
+        address: regAddress.trim() || undefined,
+      });
       onClose();
-    } catch {
-      setError("Đăng ký không thành công");
+    } catch (err: any) {
+      setError(err?.message || "Đăng ký không thành công. Tên đăng nhập hoặc Email có thể đã tồn tại.");
     } finally {
       setLoading(false);
     }
@@ -104,7 +166,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         email: accountData.email,
         name: accountData.name || accountData.email.split("@")[0],
         avatar: accountData.avatar,
-        role: tab === "register" ? role : "customer",
+        role: tab === "register" ? regRole : "customer",
       });
       setShowGooglePicker(false);
       onClose();
@@ -131,8 +193,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     <Modal
       isOpen={isOpen}
       onClose={() => {
-        setShowGooglePicker(false);
-        setShowCustomGoogleInput(false);
+        resetFormState();
         onClose();
       }}
       title={
@@ -142,7 +203,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           ? "Đăng nhập hệ thống"
           : "Đăng ký tài khoản mới"
       }
-      maxWidth="max-w-md"
+      maxWidth={tab === "register" && !showGooglePicker ? "max-w-lg" : "max-w-md"}
     >
       {showGooglePicker ? (
         /* GOOGLE ACCOUNT SELECTOR DIALOG */
@@ -161,7 +222,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             </button>
             <div className="flex items-center gap-1.5">
               <GoogleIcon size={16} />
-              <span className="text-xs font-bold text-slate-700">Google OAuth</span>
+              <span className="text-xs font-bold text-slate-700">Google OAuth 2.0</span>
             </div>
           </div>
 
@@ -246,12 +307,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       ) : (
         /* STANDARD LOGIN / REGISTER VIEW */
         <>
-          <div className="flex rounded-xl bg-slate-100 p-1 mb-5">
+          <div className="flex rounded-xl bg-slate-100 p-1 mb-4">
             <button
               type="button"
               onClick={() => {
                 setTab("login");
-                setError("");
+                resetFormState();
               }}
               className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 tab === "login"
@@ -265,7 +326,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               type="button"
               onClick={() => {
                 setTab("register");
-                setError("");
+                resetFormState();
               }}
               className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                 tab === "register"
@@ -278,13 +339,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           </div>
 
           {error && (
-            <div className="p-3 mb-4 rounded-xl bg-red-50 border border-red-200 text-xs text-red-600 font-medium">
+            <div className="p-3 mb-3.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-600 font-medium">
               {error}
             </div>
           )}
 
           {/* GOOGLE SIGN-IN BUTTON */}
-          <div className="mb-4">
+          <div className="mb-3.5">
             <button
               type="button"
               onClick={() => {
@@ -301,51 +362,70 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             </button>
 
             {/* DIVIDER */}
-            <div className="relative my-4">
+            <div className="relative my-3.5">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-slate-200" />
               </div>
-              <div className="relative flex justify-center text-[11px] uppercase tracking-wider">
+              <div className="relative flex justify-center text-[10px] uppercase tracking-wider">
                 <span className="bg-white px-2.5 text-slate-400 font-semibold">
-                  Hoặc bằng email
+                  Hoặc bằng tài khoản & mật khẩu
                 </span>
               </div>
             </div>
           </div>
 
           {tab === "login" ? (
-            <form onSubmit={handleLogin} className="space-y-4">
+            <form onSubmit={handleLogin} className="space-y-3.5">
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Email đăng nhập
+                  Tên đăng nhập hoặc Email
                 </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="an.nguyen@email.com"
-                  className="w-full text-sm border border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-blue-500 bg-slate-50"
-                />
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <UserIcon size={15} />
+                  </div>
+                  <input
+                    type="text"
+                    value={loginEmailOrUser}
+                    onChange={(e) => setLoginEmailOrUser(e.target.value)}
+                    placeholder="an.nguyen@email.com hoặc username"
+                    className="w-full text-xs border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 focus:outline-none focus:border-blue-500 bg-slate-50"
+                  />
+                </div>
               </div>
+
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">
                   Mật khẩu
                 </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full text-sm border border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-blue-500 bg-slate-50"
-                />
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <Lock size={15} />
+                  </div>
+                  <input
+                    type={showLoginPassword ? "text" : "password"}
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full text-xs border border-slate-200 rounded-xl pl-9 pr-10 py-2.5 focus:outline-none focus:border-blue-500 bg-slate-50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPassword((s) => !s)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                  >
+                    {showLoginPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
               </div>
+
               <Btn type="submit" disabled={loading} className="w-full">
                 <LogIn size={15} />
                 {loading ? "Đang xử lý..." : "Đăng nhập với JWT"}
               </Btn>
 
-              <div className="pt-4 border-t border-slate-100">
-                <p className="text-xs text-slate-400 font-medium mb-2">
+              <div className="pt-3 border-t border-slate-100">
+                <p className="text-[11px] text-slate-400 font-medium mb-2">
                   Hoặc chọn nhanh tài khoản Demo:
                 </p>
                 <div className="grid grid-cols-2 gap-2">
@@ -373,42 +453,161 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             </form>
           ) : (
             <form onSubmit={handleRegister} className="space-y-3">
+              {/* Row 1: Username & FullName */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Tên đăng nhập <span className="text-slate-400">(Username)</span>
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400">
+                      <AtSign size={14} />
+                    </div>
+                    <input
+                      type="text"
+                      value={regUsername}
+                      onChange={(e) => setRegUsername(e.target.value.replace(/\s+/g, ""))}
+                      placeholder="nguyenvan_a"
+                      className="w-full text-xs border border-slate-200 rounded-xl pl-8 pr-2.5 py-2 focus:outline-none focus:border-blue-500 bg-slate-50"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Họ và tên <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400">
+                      <UserIcon size={14} />
+                    </div>
+                    <input
+                      type="text"
+                      value={regFullName}
+                      onChange={(e) => setRegFullName(e.target.value)}
+                      placeholder="Nguyễn Văn A"
+                      required
+                      className="w-full text-xs border border-slate-200 rounded-xl pl-8 pr-2.5 py-2 focus:outline-none focus:border-blue-500 bg-slate-50"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 2: Email */}
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Họ và tên
+                  Địa chỉ Email <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Nguyễn Văn A"
-                  className="w-full text-sm border border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-blue-500 bg-slate-50"
-                />
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400">
+                    <Mail size={14} />
+                  </div>
+                  <input
+                    type="email"
+                    value={regEmail}
+                    onChange={(e) => setRegEmail(e.target.value)}
+                    placeholder="user@example.com"
+                    required
+                    className="w-full text-xs border border-slate-200 rounded-xl pl-8 pr-2.5 py-2 focus:outline-none focus:border-blue-500 bg-slate-50"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Email
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="user@example.com"
-                  className="w-full text-sm border border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-blue-500 bg-slate-50"
-                />
+
+              {/* Row 3: Password & Confirm Password */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Mật khẩu <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400">
+                      <Lock size={14} />
+                    </div>
+                    <input
+                      type={showRegPassword ? "text" : "password"}
+                      value={regPassword}
+                      onChange={(e) => setRegPassword(e.target.value)}
+                      placeholder="Tối thiểu 6 ký tự"
+                      required
+                      className="w-full text-xs border border-slate-200 rounded-xl pl-8 pr-8 py-2 focus:outline-none focus:border-blue-500 bg-slate-50"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowRegPassword((s) => !s)}
+                      className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600"
+                    >
+                      {showRegPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Xác nhận mật khẩu <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400">
+                      <Lock size={14} />
+                    </div>
+                    <input
+                      type={showRegConfirmPassword ? "text" : "password"}
+                      value={regConfirmPassword}
+                      onChange={(e) => setRegConfirmPassword(e.target.value)}
+                      placeholder="Nhập lại mật khẩu"
+                      required
+                      className="w-full text-xs border border-slate-200 rounded-xl pl-8 pr-8 py-2 focus:outline-none focus:border-blue-500 bg-slate-50"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowRegConfirmPassword((s) => !s)}
+                      className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600"
+                    >
+                      {showRegConfirmPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Số điện thoại (tùy chọn)
-                </label>
-                <input
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="0901234567"
-                  className="w-full text-sm border border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-blue-500 bg-slate-50"
-                />
+
+              {/* Row 4: Phone & Address */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Số điện thoại <span className="text-slate-400">(tùy chọn)</span>
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400">
+                      <Phone size={14} />
+                    </div>
+                    <input
+                      type="tel"
+                      value={regPhone}
+                      onChange={(e) => setRegPhone(e.target.value)}
+                      placeholder="0901234567"
+                      className="w-full text-xs border border-slate-200 rounded-xl pl-8 pr-2.5 py-2 focus:outline-none focus:border-blue-500 bg-slate-50"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Địa chỉ nhận hàng <span className="text-slate-400">(tùy chọn)</span>
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400">
+                      <MapPin size={14} />
+                    </div>
+                    <input
+                      type="text"
+                      value={regAddress}
+                      onChange={(e) => setRegAddress(e.target.value)}
+                      placeholder="123 Nguyễn Huệ, TP.HCM"
+                      className="w-full text-xs border border-slate-200 rounded-xl pl-8 pr-2.5 py-2 focus:outline-none focus:border-blue-500 bg-slate-50"
+                    />
+                  </div>
+                </div>
               </div>
+
+              {/* Row 5: Role Selection */}
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">
                   Vai trò tài khoản (Role)
@@ -418,22 +617,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     <button
                       type="button"
                       key={r}
-                      onClick={() => setRole(r)}
+                      onClick={() => setRegRole(r)}
                       className={`p-2 text-xs font-medium rounded-xl border-2 transition-all flex items-center justify-center gap-1 cursor-pointer ${
-                        role === r
+                        regRole === r
                           ? "border-blue-600 bg-blue-50 text-blue-700"
                           : "border-slate-200 text-slate-600 hover:bg-slate-50"
                       }`}
                     >
                       {ROLE_LABELS[r]}
-                      {role === r && <Check size={12} />}
+                      {regRole === r && <Check size={12} />}
                     </button>
                   ))}
                 </div>
               </div>
-              <Btn type="submit" disabled={loading} className="w-full mt-2">
+
+              <Btn type="submit" disabled={loading} className="w-full mt-1.5">
                 <UserPlus size={15} />
-                {loading ? "Đang tạo..." : "Đăng ký tài khoản"}
+                {loading ? "Đang xử lý..." : "Đăng ký tài khoản"}
               </Btn>
             </form>
           )}
@@ -442,4 +642,5 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     </Modal>
   );
 };
+
 
