@@ -1,68 +1,228 @@
 import { apiClient } from "./api";
-import { Order, Book, OrderStatus, OrderFeedback } from "../types";
+import { Order, Book, OrderStatus, OrderFeedback, ApiResponse, Shop } from "../types";
 import { INITIAL_ORDERS, INITIAL_BOOKS } from "./mockData";
 
 export const shopService = {
-  async getShopOrders(shopId = 1): Promise<Order[]> {
+  // 1. Lấy thông tin hồ sơ Shop của user hiện tại
+  async getMyProfile(): Promise<Shop | null> {
     try {
-      const res = await apiClient.get<Order[]>(`/shops/${shopId}/orders`);
-      return res.data;
-    } catch {
-      return INITIAL_ORDERS.filter((o) => o.shopId === shopId);
+      const res = await apiClient.get<ApiResponse<any>>("/shop/GetMyProfile");
+      const s = res.data.data;
+      if (!s) return null;
+      return {
+        id: s.shopId || s.id,
+        ownerId: s.userId,
+        name: s.shopName,
+        email: "shop@bookverse.com",
+        phone: s.phone || "",
+        address: s.address || "",
+        description: s.description || "",
+        status: s.condition === "ACTIVE" || s.condition === "OPEN" ? "ACTIVE" : "PENDING",
+        rating: s.rating || 0,
+        reviewCount: 0,
+        bookCount: s.totalBooks || 0,
+        joinedDate: s.createdAt,
+      };
+    } catch (error) {
+      console.warn("getMyProfile API error, falling back to mock:", error);
+      return null;
     }
   },
 
-  async updateOrderStatus(orderId: number, status: OrderStatus): Promise<boolean> {
+  // 2. Lấy danh sách đơn hàng của Shop
+  async getShopOrders(shopId?: string | number): Promise<Order[]> {
     try {
-      await apiClient.patch(`/orders/${orderId}/status`, { status });
+      const res = await apiClient.get<ApiResponse<any[]>>("/shop/orders");
+      const orders = res.data.data || [];
+      return orders.map((o: any) => ({
+        id: o.id,
+        customerId: o.userId,
+        customerName: o.userFullName,
+        customerPhone: "",
+        shopId: o.shopId || shopId || "",
+        items: (o.orderDetails || []).map((od: any) => ({
+          book: {
+            id: od.bookId,
+            title: od.bookTitle,
+            price: od.unitPrice,
+            coverColor: "#ffffff",
+            coverColor2: "#ffffff",
+          },
+          quantity: od.quantity,
+          unitPrice: od.unitPrice,
+        })),
+        totalAmount: o.totalAmount,
+        shippingFee: 30000,
+        orderStatus: o.orderStatus as OrderStatus,
+        paymentStatus: o.orderStatus === "PAID" || o.orderStatus === "COMPLETED" ? "PAID" : "UNPAID",
+        paymentMethod: "COD",
+        shippingAddress: o.shippingAddress,
+        createdAt: o.createdAt,
+        updatedAt: o.createdAt,
+        note: o.note || "",
+      }));
+    } catch (error) {
+      console.warn("getShopOrders API error, falling back to mock:", error);
+      return INITIAL_ORDERS.filter((o) => !shopId || String(o.shopId) === String(shopId));
+    }
+  },
+
+  // 3. Xem chi tiết đơn hàng của Shop
+  async getShopOrderDetail(orderId: string | number): Promise<Order | null> {
+    try {
+      const res = await apiClient.get<ApiResponse<any>>("/shop/GetShopOrderDetail", {
+        params: { orderId }
+      });
+      const o = res.data.data;
+      if (!o) return null;
+      return {
+        id: o.id,
+        customerId: o.userId,
+        customerName: o.userFullName,
+        customerPhone: "",
+        shopId: o.shopId,
+        items: (o.orderDetails || []).map((od: any) => ({
+          book: {
+            id: od.bookId,
+            title: od.bookTitle,
+            price: od.unitPrice,
+            coverColor: "#ffffff",
+            coverColor2: "#ffffff",
+          },
+          quantity: od.quantity,
+          unitPrice: od.unitPrice,
+        })),
+        totalAmount: o.totalAmount,
+        shippingFee: 30000,
+        orderStatus: o.orderStatus as OrderStatus,
+        paymentStatus: o.orderStatus === "PAID" || o.orderStatus === "COMPLETED" ? "PAID" : "UNPAID",
+        paymentMethod: "COD",
+        shippingAddress: o.shippingAddress,
+        createdAt: o.createdAt,
+        updatedAt: o.createdAt,
+        note: o.note || "",
+      };
+    } catch (error) {
+      console.warn("getShopOrderDetail API error, falling back to mock:", error);
+      return INITIAL_ORDERS.find((o) => String(o.id) === String(orderId)) || null;
+    }
+  },
+
+  // 4. Cập nhật trạng thái đơn hàng (PROCESSING, SHIPPED, DELIVERED, CANCELLED)
+  async updateOrderStatus(orderId: string | number, status: OrderStatus, notes = ""): Promise<boolean> {
+    try {
+      await apiClient.post("/shop/UpdateOrderStatus", {
+        newStatus: status,
+        notes: notes || `Cập nhật trạng thái sang ${status}`
+      }, {
+        params: { orderId }
+      });
       return true;
-    } catch {
-      const order = INITIAL_ORDERS.find((o) => o.id === orderId);
+    } catch (error) {
+      console.warn("updateOrderStatus API error, falling back to mock:", error);
+      const order = INITIAL_ORDERS.find((o) => String(o.id) === String(orderId));
       if (order) {
         order.orderStatus = status;
-        if (status === "SHIPPED") {
-          order.tracking = {
-            number: order.tracking?.number || `GHN${Math.floor(100000000 + Math.random() * 900000000)}`,
-            carrier: "Giao Hàng Nhanh",
-            status: "TRANSIT",
-            estimated: "2-3 ngày tới",
-            note: "Đã bàn giao cho nhân viên giao hàng GHN",
-          };
-        }
       }
       return true;
     }
   },
 
-  async getShopProducts(shopId = 1): Promise<Book[]> {
+  // 5. Lấy danh sách kho sách của Shop
+  async getShopProducts(shopId?: string | number, keyword?: string, categoryId?: string, status?: string): Promise<Book[]> {
     try {
-      const res = await apiClient.get<Book[]>(`/shops/${shopId}/books`);
-      return res.data;
-    } catch {
-      return INITIAL_BOOKS.filter((b) => b.shopId === shopId && b.status !== "HIDDEN");
+      const res = await apiClient.get<ApiResponse<any>>("/shop/GetShopInventory", {
+        params: {
+          keyword: keyword || undefined,
+          categoryId: categoryId || undefined,
+          status: status || undefined,
+          pageIndex: 1,
+          pageSize: 100
+        }
+      });
+      const data = res.data.data;
+      const items = data.items || data || [];
+      return items.map((b: any) => ({
+        id: b.id,
+        shopId: b.shopId || shopId || "",
+        shopName: b.shopName || "Gian hàng của tôi",
+        categoryId: b.categoryId,
+        title: b.title,
+        author: b.author || "Chưa rõ tác giả",
+        publisher: b.publisher || "NXB Tổng Hợp",
+        price: b.price,
+        stock: b.stockQuantity ?? b.stock ?? 0,
+        rating: b.rating || 0,
+        reviewCount: 0,
+        description: b.description || "",
+        coverColor: "#ffffff",
+        coverColor2: "#ffffff",
+        status: b.status === "ACTIVE" ? "ACTIVE" : b.status === "EMPTY" ? "OUT_OF_STOCK" : "HIDDEN",
+        isbn: b.isbn,
+        publishedYear: b.publishedYear,
+      }));
+    } catch (error) {
+      console.warn("getShopProducts API error, falling back to mock:", error);
+      return INITIAL_BOOKS.filter((b) => !shopId || String(b.shopId) === String(shopId));
     }
   },
 
+  // 6. Đăng bán sách mới (CreateShopBook)
   async addProduct(product: Omit<Book, "id">): Promise<Book> {
     try {
-      const res = await apiClient.post<Book>("/books", product);
-      return res.data;
-    } catch {
+      const res = await apiClient.post<ApiResponse<any>>("/shop/CreateShopBook", {
+        title: product.title,
+        author: product.author,
+        publisher: product.publisher,
+        isbn: product.isbn || "",
+        publishedYear: product.publishedYear || new Date().getFullYear(),
+        price: product.price,
+        stockQuantity: product.stock,
+        categoryId: product.categoryId,
+        description: product.description || "",
+        coverImage: "",
+      });
+      const b = res.data.data;
+      return {
+        ...product,
+        id: b.id,
+      };
+    } catch (error) {
+      console.warn("addProduct API error, falling back to mock:", error);
       const newBook: Book = {
         ...product,
-        id: Date.now(),
+        id: Date.now() as any,
       };
       INITIAL_BOOKS.unshift(newBook);
       return newBook;
     }
   },
 
-  async updateProduct(id: number, product: Partial<Book>): Promise<Book> {
+  // 7. Cập nhật thông tin & giá sách (UpdateShopBook)
+  async updateProduct(id: string | number, product: Partial<Book>): Promise<Book> {
     try {
-      const res = await apiClient.put<Book>(`/books/${id}`, product);
-      return res.data;
-    } catch {
-      const idx = INITIAL_BOOKS.findIndex((b) => b.id === id);
+      const res = await apiClient.post<ApiResponse<any>>("/shop/UpdateShopBook", {
+        title: product.title,
+        author: product.author,
+        publisher: product.publisher,
+        isbn: product.isbn,
+        publishedYear: product.publishedYear,
+        price: product.price,
+        stockQuantity: product.stock,
+        categoryId: product.categoryId,
+        description: product.description,
+        coverImage: "",
+      }, {
+        params: { bookId: id }
+      });
+      const b = res.data.data;
+      return {
+        ...product,
+        id: b?.id || id,
+      } as Book;
+    } catch (error) {
+      console.warn("updateProduct API error, falling back to mock:", error);
+      const idx = INITIAL_BOOKS.findIndex((b) => String(b.id) === String(id));
       if (idx !== -1) {
         INITIAL_BOOKS[idx] = { ...INITIAL_BOOKS[idx], ...product };
         return INITIAL_BOOKS[idx];
@@ -71,12 +231,16 @@ export const shopService = {
     }
   },
 
-  async deleteProduct(id: number): Promise<boolean> {
+  // 8. Ẩn/Xóa sách khỏi gian hàng (DeleteShopBook)
+  async deleteProduct(id: string | number): Promise<boolean> {
     try {
-      await apiClient.delete(`/books/${id}`);
+      await apiClient.post("/shop/DeleteShopBook", null, {
+        params: { bookId: id }
+      });
       return true;
-    } catch {
-      const idx = INITIAL_BOOKS.findIndex((b) => b.id === id);
+    } catch (error) {
+      console.warn("deleteProduct API error, falling back to mock:", error);
+      const idx = INITIAL_BOOKS.findIndex((b) => String(b.id) === String(id));
       if (idx !== -1) {
         INITIAL_BOOKS[idx].status = "HIDDEN";
       }
@@ -84,13 +248,34 @@ export const shopService = {
     }
   },
 
-  async getShopFeedbacks(shopId = 1): Promise<{ orderId: number; feedback: OrderFeedback }[]> {
+  // 9. Lấy danh sách đánh giá của khách hàng (GetShopFeedbacks)
+  async getShopFeedbacks(shopId?: string | number): Promise<{ orderId: string | number; feedback: OrderFeedback }[]> {
     try {
-      const res = await apiClient.get<{ orderId: number; feedback: OrderFeedback }[]>(`/shops/${shopId}/feedbacks`);
-      return res.data;
-    } catch {
+      const res = await apiClient.get<ApiResponse<any>>("/shop/GetShopFeedbacks", {
+        params: { pageIndex: 1, pageSize: 50 }
+      });
+      const data = res.data.data;
+      const items = data.items || data || [];
+      return items.map((f: any) => ({
+        orderId: f.orderId,
+        feedback: {
+          id: f.id,
+          orderId: f.orderId,
+          bookId: f.bookId,
+          rating: f.rating,
+          content: f.comment || f.content,
+          type: "SHOP",
+          createdAt: f.createdAt,
+          customer: f.userFullName || "Khách hàng",
+          customerName: f.userFullName || "Khách hàng",
+          shopReply: f.shopResponse?.responseContent,
+          shopRepliedAt: f.shopResponse?.createdAt,
+        }
+      }));
+    } catch (error) {
+      console.warn("getShopFeedbacks API error, falling back to mock:", error);
       return INITIAL_ORDERS
-        .filter((o) => o.shopId === shopId && o.feedback)
+        .filter((o) => (!shopId || String(o.shopId) === String(shopId)) && o.feedback)
         .map((o) => ({
           orderId: o.id,
           feedback: o.feedback!,
@@ -98,26 +283,53 @@ export const shopService = {
     }
   },
 
-  async replyFeedback(orderId: number, reply: string): Promise<boolean> {
+  // 10. Trả lời phản hồi đánh giá của khách (ReplyFeedback)
+  async replyFeedback(feedbackId: string | number, reply: string): Promise<boolean> {
     try {
-      await apiClient.post(`/orders/${orderId}/feedback/reply`, { shopReply: reply });
+      await apiClient.post("/shop/ReplyFeedback", {
+        responseContent: reply
+      }, {
+        params: { feedbackId }
+      });
       return true;
-    } catch {
-      const order = INITIAL_ORDERS.find((o) => o.id === orderId);
-      if (order && order.feedback) {
-        order.feedback.shopReply = reply;
-        order.feedback.shopRepliedAt = new Date().toISOString().split("T")[0];
-      }
+    } catch (error) {
+      console.warn("replyFeedback API error, falling back to mock:", error);
       return true;
     }
   },
 
-  async getRevenueStats(shopId = 1, period: "day" | "month" | "year" = "month") {
+  // 11. Xử lý yêu cầu trả hàng / hoàn tiền (ProcessReturnRequest)
+  async processReturnRequest(returnRequestId: string | number, isAccepted: boolean, shopNote = ""): Promise<boolean> {
     try {
-      const res = await apiClient.get(`/shops/${shopId}/revenue?period=${period}`);
-      return res.data;
-    } catch {
-      const orders = INITIAL_ORDERS.filter((o) => o.shopId === shopId && o.orderStatus === "DELIVERED");
+      await apiClient.post("/shop/ProcessReturnRequest", {
+        isAccepted,
+        shopNote: shopNote || (isAccepted ? "Đồng ý hoàn tiền" : "Từ chối hoàn tiền")
+      }, {
+        params: { returnRequestId }
+      });
+      return true;
+    } catch (error) {
+      console.warn("processReturnRequest API error, falling back to mock:", error);
+      return true;
+    }
+  },
+
+  // 12. Thống kê doanh thu Shop (GetRevenueStatistics)
+  async getRevenueStats(shopId?: string | number, period: "day" | "month" | "year" = "month") {
+    try {
+      const res = await apiClient.get<ApiResponse<any>>("/shop/GetRevenueStatistics", {
+        params: { periodType: period }
+      });
+      const data = res.data.data;
+      return {
+        period,
+        totalRevenue: data?.totalRevenue || 0,
+        totalOrders: data?.totalOrders || 0,
+        deliveredCount: data?.completedOrders || data?.totalOrders || 0,
+      };
+    } catch (error) {
+      console.warn("getRevenueStats API error, falling back to mock:", error);
+      const orders = INITIAL_ORDERS.filter((o) => (!shopId || String(o.shopId) === String(shopId)) && o.orderStatus === "DELIVERED");
       const total = orders.reduce((s, o) => s + o.totalAmount, 0);
       return {
         period,
