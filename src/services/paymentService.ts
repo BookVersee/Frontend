@@ -5,16 +5,15 @@ export const paymentService = {
   // 1. Tạo URL thanh toán VNPay Sandbox
   async createVnpayUrl(params: {
     orderId: string | number;
-    amount: number;
+    amount?: number;
     orderInfo?: string;
-    returnUrl?: string;
+    bankCode?: string;
   }): Promise<string | null> {
     try {
       const res = await apiClient.post<ApiResponse<{ payment_url: string }>>("/payment/CreateVnpayUrl", {
-        orderId: params.orderId,
-        amount: params.amount,
-        orderInfo: params.orderInfo || `Thanh toán đơn hàng #${params.orderId}`,
-        returnUrl: params.returnUrl || `${window.location.origin}/payment-result`,
+        order_id: params.orderId,
+        order_info: params.orderInfo || `Thanh toan don hang ${params.orderId}`,
+        bank_code: params.bankCode || "",
       });
       return res.data.data?.payment_url || (res.data as any)?.payment_url || null;
     } catch (error) {

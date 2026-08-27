@@ -17,6 +17,7 @@ import { MyOrdersPage } from "./pages/customer/MyOrdersPage";
 import { OrderDetailPage } from "./pages/customer/OrderDetailPage";
 import { ProfilePage } from "./pages/customer/ProfilePage";
 import { ShopProfilePage } from "./pages/customer/ShopProfilePage";
+import { PaymentResultPage } from "./pages/customer/PaymentResultPage";
 
 // Other Roles
 import { ShopDashboardPage } from "./pages/shop/ShopDashboardPage";
@@ -25,7 +26,12 @@ import { DeliverDashboardPage } from "./pages/deliver/DeliverDashboardPage";
 
 const AppContent: React.FC = () => {
   const { role } = useAuth();
-  const [customerPage, setCustomerPage] = useState<CustomerPage>("home");
+  const isPaymentCallback =
+    window.location.search.includes("vnp_ResponseCode") ||
+    window.location.pathname.includes("payment-result");
+  const [customerPage, setCustomerPage] = useState<CustomerPage>(
+    isPaymentCallback ? "paymentResult" : "home"
+  );
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [selectedShopId, setSelectedShopId] = useState<number>(1);
@@ -45,6 +51,19 @@ const AppContent: React.FC = () => {
       {/* Main Role Content */}
       <main className="flex-1">
         {/* CUSTOMER VIEWS */}
+        {role === "customer" && customerPage === "paymentResult" && (
+          <PaymentResultPage
+            onViewOrders={() => {
+              window.history.replaceState({}, document.title, "/");
+              setCustomerPage("orders");
+            }}
+            onGoHome={() => {
+              window.history.replaceState({}, document.title, "/");
+              setCustomerPage("home");
+            }}
+          />
+        )}
+
         {role === "customer" && customerPage === "home" && (
           <HomePage
             onSelectBook={(book) => {

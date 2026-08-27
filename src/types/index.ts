@@ -218,7 +218,8 @@ export type CustomerPage =
   | "orders"
   | "orderDetail"
   | "profile"
-  | "shopProfile";
+  | "shopProfile"
+  | "paymentResult";
 
 export interface ApiResponse<T> {
   success: boolean;

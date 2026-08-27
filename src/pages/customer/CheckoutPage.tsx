@@ -7,6 +7,7 @@ import { Card } from "../../components/common/Card";
 import { Btn } from "../../components/common/Btn";
 import { fmt } from "../../utils/format";
 import { orderService } from "../../services/orderService";
+import { paymentService } from "../../services/paymentService";
 
 interface CheckoutPageProps {
   onBack: () => void;
@@ -21,17 +22,19 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
   const { user } = useAuth();
 
   const [method, setMethod] = useState<PaymentMethod>("ONLINE");
-  const [address, setAddress] = useState("123 Nguyễn Huệ, Quận 1, TP.HCM");
+  const [address, setAddress] = useState(user?.address || "123 Nguyễn Huệ, Quận 1, TP.HCM");
   const [phone, setPhone] = useState(user?.phone || "0901234567");
-  const [customerName, setCustomerName] = useState(user?.name || "Nguyễn Văn An");
+  const [customerName, setCustomerName] = useState(user?.name || "Khách hàng BookVerse");
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
   const [done, setDone] = useState(false);
 
   const handlePlaceOrder = async () => {
     setIsSubmitting(true);
+    setError("");
     try {
-      await orderService.createOrder({
+      const orders = await orderService.createOrder({
         customerId: user?.id || 1,
         customerName,
         customerPhone: phone,
@@ -40,8 +43,30 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
         shippingAddress: address,
         note,
       });
+
+      if (method === "ONLINE") {
+        const orderId = orders?.[0]?.id;
+        if (orderId) {
+          const paymentUrl = await paymentService.createVnpayUrl({
+            orderId,
+            amount: total,
+            orderInfo: `Thanh toan don hang BookVerse #${String(orderId).slice(0, 8)}`,
+          });
+
+          if (paymentUrl) {
+            clearCart();
+            // Điều hướng sang cổng VNPay Sandbox để quét mã QR / thẻ ATM
+            window.location.href = paymentUrl;
+            return;
+          }
+        }
+      }
+
       clearCart();
       setDone(true);
+    } catch (err: any) {
+      console.error("Place order error:", err);
+      setError(err?.message || "Không thể khởi tạo đơn hàng. Vui lòng kiểm tra lại thông tin.");
     } finally {
       setIsSubmitting(false);
     }

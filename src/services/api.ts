@@ -33,8 +33,10 @@ apiClient.interceptors.response.use(
       const { status, data } = error.response;
       switch (status) {
         case 401:
-          console.warn("[HTTP 401] Token expired or Unauthorized. Session cleared.");
-          removeStoredToken();
+          if (error.config?.headers?.Authorization && !error.config.url?.includes("/auth/")) {
+            console.warn("[HTTP 401] Token expired. Clearing stored token.");
+            removeStoredToken();
+          }
           break;
         case 403:
           console.error("[HTTP 403] Forbidden: Bạn không có quyền truy cập chức năng này.");
