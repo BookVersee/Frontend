@@ -248,6 +248,86 @@ export const authService = {
     }
   },
 
+  async loginWithGoogle(googleData?: {
+    email: string;
+    name?: string;
+    avatar?: string;
+    role?: Role;
+    googleId?: string;
+  }): Promise<AuthResponse> {
+    const targetEmail = googleData?.email || "user.google@bookverse.com";
+    const targetName = googleData?.name || targetEmail.split("@")[0];
+    const targetAvatar = googleData?.avatar;
+    const targetRole = googleData?.role || "customer";
+
+    try {
+      // Thử gọi API Backend nếu có sẵn endpoint Google OAuth
+      const response = await apiClient.post<ApiResponse<any>>("/auth/google", {
+        email: targetEmail,
+        name: targetName,
+        avatar: targetAvatar,
+        googleId: googleData?.googleId || `g_${Date.now()}`,
+      });
+
+      const tokenResponse = response.data.data;
+      const token = tokenResponse.accessToken;
+      const user: User = {
+        id: tokenResponse.user.id,
+        name: tokenResponse.user.fullName || tokenResponse.user.username || targetName,
+        email: tokenResponse.user.email || targetEmail,
+        role: (tokenResponse.user.role?.toLowerCase() as Role) || targetRole,
+        phone: tokenResponse.user.phone,
+        address: tokenResponse.user.address,
+        status: tokenResponse.user.status || "ACTIVE",
+        avatar: tokenResponse.user.avatar || targetAvatar,
+        balance: 0,
+        createdAt: tokenResponse.user.createdAt || new Date().toLocaleDateString("vi-VN"),
+        authProvider: "google",
+      };
+
+      setStoredToken(token);
+      setStoredUser(user);
+      return { token, user };
+    } catch (error) {
+      console.warn("Google Login API error, falling back to mock authentication:", error);
+
+      // Mock user authentication with Google
+      const existingUser = DEMO_USERS.find(
+        (u) => u.email.toLowerCase() === targetEmail.toLowerCase()
+      );
+
+      const user: User = existingUser
+        ? {
+            ...existingUser,
+            authProvider: "google",
+            avatar: targetAvatar || existingUser.avatar,
+          }
+        : {
+            id: Date.now(),
+            name: targetName,
+            email: targetEmail,
+            role: targetRole,
+            status: "ACTIVE",
+            avatar: targetAvatar,
+            balance: 0,
+            createdAt: new Date().toLocaleDateString("vi-VN"),
+            authProvider: "google",
+          };
+
+      if (user.status === "LOCKED") {
+        throw new Error("Tài khoản này đã bị khóa bởi Quản trị viên.");
+      }
+
+      const mockToken = `mock-google-jwt-token-${user.id}-${Date.now()}`;
+      setStoredToken(mockToken);
+      setStoredUser(user);
+      if (!existingUser) {
+        DEMO_USERS.unshift(user);
+      }
+      return { token: mockToken, user };
+    }
+  },
+
   logout(): void {
     removeStoredToken();
   },

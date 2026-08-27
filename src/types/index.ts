@@ -162,6 +162,7 @@ export interface User {
   status?: UserStatus;
   shopStatus?: "PENDING" | "ACTIVE" | "REJECTED";
   balance?: number;
+  authProvider?: "local" | "google";
 }
 
 export interface Shop {

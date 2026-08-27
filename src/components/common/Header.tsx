@@ -188,17 +188,32 @@ export const Header: React.FC<HeaderProps> = ({
                 setUserMenuOpen((o) => !o);
                 setRoleOpen(false);
               }}
-              className="flex items-center gap-2 p-1.5 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+              className="flex items-center gap-2 p-1 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
             >
-              <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs">
-                {user.name ? user.name[0] : "U"}
-              </div>
+              {user.avatar ? (
+                <img
+                  src={user.avatar}
+                  alt={user.name}
+                  className="w-8 h-8 rounded-full object-cover border border-slate-200 ring-2 ring-blue-500/20 shadow-xs"
+                />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs">
+                  {user.name ? user.name[0] : "U"}
+                </div>
+              )}
             </button>
             {userMenuOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-52 bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute right-0 top-full mt-1.5 w-56 bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100">
                 <div className="px-4 py-3 border-b border-slate-100">
-                  <p className="text-xs font-bold text-slate-800 truncate">{user.name}</p>
-                  <p className="text-[11px] text-slate-400 truncate">{user.email}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-bold text-slate-800 truncate flex-1">{user.name}</p>
+                    {user.authProvider === "google" && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-50 text-blue-600 border border-blue-100">
+                        Google
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-400 truncate mt-0.5">{user.email}</p>
                 </div>
                 <button
                   onClick={() => {
