@@ -14,12 +14,12 @@ export interface RegisterData {
 }
 
 export const authService = {
-  async login(email: string, _password?: string): Promise<AuthResponse> {
+  async login(usernameOrEmail: string, password?: string): Promise<AuthResponse> {
     try {
       // Gọi API thực tế của Backend
       const response = await apiClient.post<ApiResponse<any>>("/auth/login", {
-        usernameOrEmail: email,
-        password: _password || "Password123!", // password mặc định nếu để trống
+        usernameOrEmail: usernameOrEmail.trim(),
+        password: password || "",
       });
 
       const tokenResponse = response.data.data;
@@ -39,27 +39,44 @@ export const authService = {
       setStoredToken(token);
       setStoredUser(user);
       return { token, user };
-    } catch (error) {
-      console.warn("Login API error, falling back to mock authentication:", error);
-      
-      // Fallback mock authentication
-      const user = DEMO_USERS.find((u) => u.email.toLowerCase() === email.toLowerCase()) || {
-        id: 9999,
-        name: email.split("@")[0],
-        email: email,
-        role: "customer" as Role,
-        status: "ACTIVE" as const,
-        createdAt: "24/08/2026",
-      };
+    } catch (error: any) {
+      console.warn("Login API error:", error);
 
-      if (user.status === "LOCKED") {
-        throw new Error("Tài khoản này đã bị khóa bởi Quản trị viên.");
+      // Nếu Backend có phản hồi lỗi (HTTP 400, 401, 403, ...) -> Báo lỗi chính xác cho người dùng
+      if (error.response) {
+        const errorData = error.response.data;
+        const msg =
+          errorData?.message ||
+          errorData?.errors?.detail ||
+          (typeof errorData?.errors === "string" ? errorData.errors : null);
+
+        if (error.response.status === 401 || msg?.includes("Invalid username/email or password")) {
+          throw new Error("Tên đăng nhập hoặc mật khẩu không chính xác.");
+        }
+        if (msg?.includes("locked")) {
+          throw new Error("Tài khoản này đã bị khóa bởi Quản trị viên.");
+        }
+        throw new Error(msg || "Đăng nhập không thành công. Vui lòng kiểm tra lại thông tin.");
       }
 
-      const mockToken = `mock-jwt-token-${user.id}-${Date.now()}`;
-      setStoredToken(mockToken);
-      setStoredUser(user);
-      return { token: mockToken, user };
+      // Chỉ fallback sang mock user khi máy chủ Backend không bật VÀ cờ VITE_ENABLE_MOCK=true
+      const isMockEnabled = import.meta.env.VITE_ENABLE_MOCK === "true";
+      if (isMockEnabled && !error.response) {
+        const user = DEMO_USERS.find(
+          (u) => u.email.toLowerCase() === usernameOrEmail.toLowerCase()
+        );
+        if (user) {
+          if (user.status === "LOCKED") {
+            throw new Error("Tài khoản này đã bị khóa bởi Quản trị viên.");
+          }
+          const mockToken = `mock-jwt-token-${user.id}-${Date.now()}`;
+          setStoredToken(mockToken);
+          setStoredUser(user);
+          return { token: mockToken, user };
+        }
+      }
+
+      throw new Error("Không thể kết nối đến máy chủ Backend. Vui lòng thử lại sau.");
     }
   },
 
@@ -115,24 +132,48 @@ export const authService = {
       setStoredToken(token);
       setStoredUser(user);
       return { token, user };
-    } catch (error) {
-      console.warn("Register API error, falling back to mock:", error);
-      const user: User = {
-        id: Date.now(),
-        name: payload.name,
-        email: payload.email,
-        role: userRole,
-        phone: payload.phone || "0901234567",
-        address: payload.address || "TP. Hồ Chí Minh",
-        status: "ACTIVE",
-        balance: 0,
-        createdAt: new Date().toLocaleDateString("vi-VN"),
-      };
-      const mockToken = `mock-jwt-token-${user.id}-${Date.now()}`;
-      setStoredToken(mockToken);
-      setStoredUser(user);
-      DEMO_USERS.unshift(user);
-      return { token: mockToken, user };
+    } catch (error: any) {
+      console.warn("Register API error:", error);
+
+      // Nếu Backend có phản hồi lỗi (trùng username, trùng email, ...)
+      if (error.response) {
+        const errorData = error.response.data;
+        const msg =
+          errorData?.message ||
+          errorData?.errors?.detail ||
+          (typeof errorData?.errors === "string" ? errorData.errors : null);
+
+        if (msg?.includes("Username is already taken") || msg?.includes("Username")) {
+          throw new Error("Tên đăng nhập này đã được sử dụng. Vui lòng chọn tên khác.");
+        }
+        if (msg?.includes("Email is already registered") || msg?.includes("Email")) {
+          throw new Error("Địa chỉ Email này đã được đăng ký tài khoản trong hệ thống.");
+        }
+        throw new Error(msg || "Đăng ký không thành công. Vui lòng thử lại.");
+      }
+
+      // Chỉ fallback sang mock khi Backend không hoạt động VÀ có bật cờ Mock
+      const isMockEnabled = import.meta.env.VITE_ENABLE_MOCK === "true";
+      if (isMockEnabled && !error.response) {
+        const user: User = {
+          id: Date.now(),
+          name: payload.name,
+          email: payload.email,
+          role: userRole,
+          phone: payload.phone || "0901234567",
+          address: payload.address || "TP. Hồ Chí Minh",
+          status: "ACTIVE",
+          balance: 0,
+          createdAt: new Date().toLocaleDateString("vi-VN"),
+        };
+        const mockToken = `mock-jwt-token-${user.id}-${Date.now()}`;
+        setStoredToken(mockToken);
+        setStoredUser(user);
+        DEMO_USERS.unshift(user);
+        return { token: mockToken, user };
+      }
+
+      throw new Error("Không thể kết nối đến máy chủ Backend để đăng ký tài khoản.");
     }
   },
 
