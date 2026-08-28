@@ -288,6 +288,7 @@ export const BookDetailPage: React.FC<BookDetailPageProps> = ({
         onClose={() => setChatOpen(false)}
         shopId={book.shopId}
         shopName={book.shopName}
+        book={book}
       />
     </div>
   );
