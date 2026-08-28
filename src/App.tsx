@@ -28,6 +28,9 @@ const AppContent: React.FC = () => {
   const { role } = useAuth();
   const isPaymentCallback =
     window.location.search.includes("vnp_ResponseCode") ||
+    window.location.search.includes("resultCode") ||
+    window.location.search.includes("partnerCode") ||
+    window.location.search.includes("orderId") ||
     window.location.pathname.includes("payment-result");
   const [customerPage, setCustomerPage] = useState<CustomerPage>(
     isPaymentCallback ? "paymentResult" : "home"
