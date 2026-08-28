@@ -94,25 +94,26 @@ export const HomePage: React.FC<HomePageProps> = ({
       <div className="max-w-5xl mx-auto px-6 py-6">
         {/* Banner */}
         <div
-          className="rounded-3xl mb-8 p-8 sm:p-10 text-white shadow-lg relative overflow-hidden"
+          className="rounded-3xl mb-8 p-8 sm:p-10 text-[#fdf9f5] shadow-lg relative overflow-hidden"
           style={{
             background:
-              "linear-gradient(135deg, #1e3a5f 0%, #1d4ed8 50%, #3b82f6 100%)",
+              "linear-gradient(135deg, #3d2b1a 0%, #2a1b0e 100%)",
+            border: "1px solid #ddd0be",
           }}
         >
           <div className="relative z-10 max-w-xl">
-            <span className="inline-block px-3 py-1 rounded-full bg-white/15 text-blue-100 text-xs font-semibold uppercase tracking-wider mb-3 backdrop-blur-sm">
+            <span className="inline-block px-3 py-1 rounded-full bg-[#7c4a2d]/40 text-[#c8843a] text-xs font-bold uppercase tracking-wider mb-3 backdrop-blur-sm">
               Sàn Sách Trực Tuyến Đa Cửa Hàng
             </span>
-            <h1 className="text-3xl sm:text-4xl font-extrabold mb-3 tracking-tight">
+            <h1 className="text-3xl sm:text-4xl font-extrabold mb-3 tracking-tight font-serif text-[#fdf9f5]">
               Khám phá thế giới tri thức
             </h1>
-            <p className="text-blue-100 text-sm sm:text-base leading-relaxed">
+            <p className="text-[#b5a898] text-sm sm:text-base leading-relaxed">
               Hàng ngàn đầu sách chính hãng từ các nhà phát hành uy tín nhất Việt
               Nam: Phương Nam, Fahasa, Tiki Sách và nhiều đối tác khác.
             </p>
           </div>
-          <div className="absolute -right-10 -bottom-10 w-64 h-64 rounded-full bg-white/10 blur-2xl" />
+          <div className="absolute -right-10 -bottom-10 w-64 h-64 rounded-full bg-white/5 blur-2xl" />
         </div>
 
         {/* Categories Bar */}
@@ -122,8 +123,8 @@ export const HomePage: React.FC<HomePageProps> = ({
             className="px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer"
             style={
               selectedCatId === 0
-                ? { backgroundColor: "#1d4ed8", color: "white", boxShadow: "0 2px 8px rgba(29, 78, 216, 0.25)" }
-                : { backgroundColor: "#ffffff", color: "#475569", border: "1px solid #e2e8f0" }
+                ? { backgroundColor: "#7c4a2d", color: "#fdf9f5", boxShadow: "0 2px 8px rgba(124, 74, 45, 0.25)", border: "1px solid #7c4a2d" }
+                : { backgroundColor: "#f3ede4", color: "#3d2b1a", border: "1px solid #ddd0be" }
             }
           >
             Tất cả danh mục
@@ -135,8 +136,8 @@ export const HomePage: React.FC<HomePageProps> = ({
               className="px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer"
               style={
                 selectedCatId === c.id
-                  ? { backgroundColor: "#1d4ed8", color: "white", boxShadow: "0 2px 8px rgba(29, 78, 216, 0.25)" }
-                  : { backgroundColor: "#ffffff", color: "#475569", border: "1px solid #e2e8f0" }
+                  ? { backgroundColor: "#7c4a2d", color: "#fdf9f5", boxShadow: "0 2px 8px rgba(124, 74, 45, 0.25)", border: "1px solid #7c4a2d" }
+                  : { backgroundColor: "#f3ede4", color: "#3d2b1a", border: "1px solid #ddd0be" }
               }
             >
               {c.name}
