@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Modal } from "../common/Modal";
 import { Btn } from "../common/Btn";
 import { GoogleIcon } from "../common/GoogleIcon";
@@ -20,6 +20,11 @@ import {
   Phone,
   MapPin,
   AtSign,
+  KeyRound,
+  ShieldCheck,
+  CheckCircle2,
+  RefreshCw,
+  Clock,
 } from "lucide-react";
 
 interface AuthModalProps {
@@ -46,8 +51,8 @@ const GOOGLE_SAMPLE_ACCOUNTS = [
 ];
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
-  const { login, loginWithGoogle, register } = useAuth();
-  const [tab, setTab] = useState<"login" | "register">("login");
+  const { login, loginWithGoogle, register, forgotPassword, resetPassword } = useAuth();
+  const [tab, setTab] = useState<"login" | "register" | "forgot">("login");
 
   // Login form state
   const [loginEmailOrUser, setLoginEmailOrUser] = useState("");
@@ -66,6 +71,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [showRegPassword, setShowRegPassword] = useState(false);
   const [showRegConfirmPassword, setShowRegConfirmPassword] = useState(false);
 
+  // Forgot / Reset Password state
+  const [forgotStep, setForgotStep] = useState<"email" | "otp" | "new_password" | "success">("email");
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotOtp, setForgotOtp] = useState("");
+  const [forgotNewPassword, setForgotNewPassword] = useState("");
+  const [forgotConfirmPassword, setForgotConfirmPassword] = useState("");
+  const [showForgotNewPassword, setShowForgotNewPassword] = useState(false);
+  const [showForgotConfirmPassword, setShowForgotConfirmPassword] = useState(false);
+  const [forgotSuccessMsg, setForgotSuccessMsg] = useState("");
+  const [cooldown, setCooldown] = useState(0); // 60s cooldown for resending OTP
+  const [otpExpiresIn, setOtpExpiresIn] = useState(0); // 300s (5 mins) OTP countdown
+
   // Common & Google states
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -74,10 +91,45 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [showCustomGoogleInput, setShowCustomGoogleInput] = useState(false);
   const [error, setError] = useState("");
 
+  // Countdown timer effect for Cooldown and OTP Expiry
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval>;
+    if (cooldown > 0) {
+      timer = setInterval(() => setCooldown((c) => Math.max(c - 1, 0)), 1000);
+    }
+    return () => clearInterval(timer);
+  }, [cooldown]);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval>;
+    if (forgotStep === "otp" && otpExpiresIn > 0) {
+      timer = setInterval(() => setOtpExpiresIn((t) => Math.max(t - 1, 0)), 1000);
+    }
+    return () => clearInterval(timer);
+  }, [forgotStep, otpExpiresIn]);
+
+  const formatTimer = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
+
   const resetFormState = () => {
     setError("");
     setShowGooglePicker(false);
     setShowCustomGoogleInput(false);
+  };
+
+  const resetForgotState = () => {
+    setForgotStep("email");
+    setForgotEmail("");
+    setForgotOtp("");
+    setForgotNewPassword("");
+    setForgotConfirmPassword("");
+    setForgotSuccessMsg("");
+    setCooldown(0);
+    setOtpExpiresIn(0);
+    setError("");
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -182,20 +234,94 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     });
   };
 
+  // --- FORGOT PASSWORD STEP HANDLERS ---
+  const handleSendOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!forgotEmail.trim() || !forgotEmail.includes("@")) {
+      setError("Vui lòng nhập địa chỉ Email hợp lệ để nhận mã OTP.");
+      return;
+    }
+    setError("");
+    setLoading(true);
+    try {
+      const msg = await forgotPassword(forgotEmail.trim());
+      setForgotSuccessMsg(msg || "Mã OTP đã được gửi đến email của bạn.");
+      setForgotStep("otp");
+      setCooldown(60); // 60s cooldown
+      setOtpExpiresIn(300); // 5 minutes expiry
+    } catch (err: any) {
+      setError(err?.message || "Không thể gửi mã OTP. Vui lòng kiểm tra lại địa chỉ email.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotOtp.trim()) {
+      setError("Vui lòng nhập mã OTP đã nhận được.");
+      return;
+    }
+    if (forgotOtp.trim().length < 4) {
+      setError("Mã OTP không hợp lệ (yêu cầu tối thiểu 4-6 chữ số).");
+      return;
+    }
+    if (otpExpiresIn <= 0) {
+      setError("Mã OTP đã hết hiệu lực. Vui lòng nhấn 'Gửi lại mã' để nhận mã mới.");
+      return;
+    }
+    setError("");
+    setForgotStep("new_password");
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotNewPassword) {
+      setError("Vui lòng nhập Mật khẩu mới.");
+      return;
+    }
+    if (forgotNewPassword.length < 6) {
+      setError("Mật khẩu mới phải có tối thiểu 6 ký tự.");
+      return;
+    }
+    if (forgotNewPassword !== forgotConfirmPassword) {
+      setError("Mật khẩu xác nhận không trùng khớp.");
+      return;
+    }
+    setError("");
+    setLoading(true);
+    try {
+      const msg = await resetPassword(forgotEmail.trim(), forgotOtp.trim(), forgotNewPassword);
+      setForgotSuccessMsg(msg || "Đặt lại mật khẩu thành công!");
+      setForgotStep("success");
+    } catch (err: any) {
+      setError(err?.message || "Đặt lại mật khẩu thất bại. Vui lòng kiểm tra lại mã OTP.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getModalTitle = () => {
+    if (showGooglePicker) return "Đăng nhập bằng tài khoản Google";
+    if (tab === "forgot") {
+      if (forgotStep === "email") return "Quên mật khẩu";
+      if (forgotStep === "otp") return "Xác thực mã OTP";
+      if (forgotStep === "new_password") return "Thiết lập mật khẩu mới";
+      return "Đổi mật khẩu thành công";
+    }
+    return tab === "login" ? "Đăng nhập hệ thống" : "Đăng ký tài khoản mới";
+  };
+
   return (
     <Modal
       isOpen={isOpen}
       onClose={() => {
         resetFormState();
+        resetForgotState();
+        setTab("login");
         onClose();
       }}
-      title={
-        showGooglePicker
-          ? "Đăng nhập bằng tài khoản Google"
-          : tab === "login"
-          ? "Đăng nhập hệ thống"
-          : "Đăng ký tài khoản mới"
-      }
+      title={getModalTitle()}
       maxWidth={tab === "register" && !showGooglePicker ? "max-w-lg" : "max-w-md"}
     >
       {showGooglePicker ? (
@@ -208,7 +334,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 setShowGooglePicker(false);
                 setError("");
               }}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
             >
               <ArrowLeft size={14} />
               Quay lại
@@ -263,7 +389,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             <button
               type="button"
               onClick={() => setShowCustomGoogleInput(true)}
-              className="w-full flex items-center justify-center gap-2 p-2.5 rounded-xl border border-dashed border-slate-300 text-xs font-semibold text-slate-600 hover:border-blue-400 hover:text-blue-600 hover:bg-slate-50 transition-all"
+              className="w-full flex items-center justify-center gap-2 p-2.5 rounded-xl border border-dashed border-slate-300 text-xs font-semibold text-slate-600 hover:border-blue-400 hover:text-blue-600 hover:bg-slate-50 transition-all cursor-pointer"
             >
               <PlusCircle size={15} />
               Sử dụng tài khoản Google khác
@@ -285,7 +411,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 <button
                   type="submit"
                   disabled={googleLoading}
-                  className="px-3.5 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-1"
+                  className="px-3.5 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-1 cursor-pointer"
                 >
                   {googleLoading ? <Loader2 size={13} className="animate-spin" /> : "Tiếp tục"}
                 </button>
@@ -297,6 +423,233 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             Đăng nhập an toàn & bảo mật qua giao thức Google OAuth 2.0
           </p>
         </div>
+      ) : tab === "forgot" ? (
+        /* FORGOT PASSWORD WORKFLOW (4 STEPS) */
+        <div className="space-y-4 animate-in fade-in zoom-in-95 duration-150">
+          {/* Header Bar */}
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+            <button
+              type="button"
+              onClick={() => {
+                resetForgotState();
+                setTab("login");
+              }}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+            >
+              <ArrowLeft size={14} />
+              Quay lại Đăng nhập
+            </button>
+            <div className="flex items-center gap-1 text-[11px] font-bold text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-100">
+              <KeyRound size={12} />
+              <span>Khôi phục tài khoản</span>
+            </div>
+          </div>
+
+          {/* Error & Info Alerts */}
+          {error && (
+            <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-600 font-medium">
+              {error}
+            </div>
+          )}
+
+          {forgotStep === "email" && (
+            /* STEP 1: ENTER EMAIL */
+            <form onSubmit={handleSendOtp} className="space-y-3.5">
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Nhập địa chỉ Email đã đăng ký tài khoản BookVerse của bạn. Hệ thống sẽ gửi một mã OTP 6 số để xác thực.
+              </p>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Địa chỉ Email <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <Mail size={15} />
+                  </div>
+                  <input
+                    type="email"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    placeholder="name@example.com"
+                    required
+                    autoFocus
+                    className="w-full text-xs border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 focus:outline-none focus:border-blue-500 bg-slate-50"
+                  />
+                </div>
+              </div>
+
+              <Btn type="submit" disabled={loading} className="w-full">
+                {loading ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
+                {loading ? "Đang gửi mã OTP..." : "Gửi mã OTP về Email"}
+              </Btn>
+            </form>
+          )}
+
+          {forgotStep === "otp" && (
+            /* STEP 2: ENTER OTP CODE */
+            <form onSubmit={handleVerifyOtp} className="space-y-3.5">
+              <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-100 text-xs text-blue-800">
+                <p className="font-semibold">{forgotSuccessMsg || "Mã OTP đã được gửi thành công!"}</p>
+                <p className="text-[11px] text-blue-600 mt-0.5">
+                  Vui lòng kiểm tra hộp thư đến (hoặc thư mục Spam) của <strong>{forgotEmail}</strong>.
+                </p>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-medium text-slate-600">
+                    Nhập mã OTP 6 số <span className="text-red-500">*</span>
+                  </label>
+                  {otpExpiresIn > 0 ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">
+                      <Clock size={11} />
+                      Còn {formatTimer(otpExpiresIn)}
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-bold text-red-500">Mã đã hết hạn</span>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <KeyRound size={15} />
+                  </div>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={forgotOtp}
+                    onChange={(e) => setForgotOtp(e.target.value.replace(/\D/g, ""))}
+                    placeholder="123456"
+                    required
+                    autoFocus
+                    className="w-full text-center tracking-[8px] font-mono text-base font-bold border border-slate-200 rounded-xl py-2.5 focus:outline-none focus:border-blue-500 bg-slate-50"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  type="button"
+                  onClick={() => setForgotStep("email")}
+                  className="text-xs text-slate-500 hover:text-slate-800 underline cursor-pointer"
+                >
+                  Đổi email khác
+                </button>
+
+                <button
+                  type="button"
+                  disabled={cooldown > 0 || loading}
+                  onClick={() => handleSendOtp()}
+                  className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-700 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
+                  {cooldown > 0 ? `Gửi lại mã (${cooldown}s)` : "Gửi lại mã OTP"}
+                </button>
+              </div>
+
+              <Btn type="submit" disabled={loading || !forgotOtp.trim()} className="w-full">
+                Tiếp tục thiết lập mật khẩu
+              </Btn>
+            </form>
+          )}
+
+          {forgotStep === "new_password" && (
+            /* STEP 3: SET NEW PASSWORD */
+            <form onSubmit={handleResetPassword} className="space-y-3.5">
+              <p className="text-xs text-slate-600">
+                Nhập mật khẩu mới an toàn cho tài khoản <strong>{forgotEmail}</strong>.
+              </p>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Mật khẩu mới <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <Lock size={15} />
+                  </div>
+                  <input
+                    type={showForgotNewPassword ? "text" : "password"}
+                    value={forgotNewPassword}
+                    onChange={(e) => setForgotNewPassword(e.target.value)}
+                    placeholder="Tối thiểu 6 ký tự"
+                    required
+                    autoFocus
+                    className="w-full text-xs border border-slate-200 rounded-xl pl-9 pr-10 py-2.5 focus:outline-none focus:border-blue-500 bg-slate-50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotNewPassword((s) => !s)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    {showForgotNewPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Xác nhận mật khẩu mới <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <Lock size={15} />
+                  </div>
+                  <input
+                    type={showForgotConfirmPassword ? "text" : "password"}
+                    value={forgotConfirmPassword}
+                    onChange={(e) => setForgotConfirmPassword(e.target.value)}
+                    placeholder="Nhập lại mật khẩu mới"
+                    required
+                    className="w-full text-xs border border-slate-200 rounded-xl pl-9 pr-10 py-2.5 focus:outline-none focus:border-blue-500 bg-slate-50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotConfirmPassword((s) => !s)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    {showForgotConfirmPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              <Btn type="submit" disabled={loading} className="w-full">
+                {loading ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
+                {loading ? "Đang cập nhật..." : "Xác nhận đổi mật khẩu"}
+              </Btn>
+            </form>
+          )}
+
+          {forgotStep === "success" && (
+            /* STEP 4: SUCCESS CONFIRMATION */
+            <div className="text-center py-4 space-y-3.5">
+              <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-inner">
+                <CheckCircle2 size={26} />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">Đặt lại mật khẩu thành công!</h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Mật khẩu mới đã được cập nhật an toàn. Bây giờ bạn có thể đăng nhập vào tài khoản BookVerse của mình.
+                </p>
+              </div>
+
+              <Btn
+                type="button"
+                onClick={() => {
+                  setLoginEmailOrUser(forgotEmail);
+                  setLoginPassword(forgotNewPassword);
+                  resetForgotState();
+                  setTab("login");
+                }}
+                className="w-full"
+              >
+                <LogIn size={15} />
+                Đăng nhập ngay
+              </Btn>
+            </div>
+          )}
+        </div>
       ) : (
         /* STANDARD LOGIN / REGISTER VIEW */
         <>
@@ -307,7 +660,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 setTab("login");
                 resetFormState();
               }}
-              className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                 tab === "login"
                   ? "bg-white text-slate-800 shadow-sm"
                   : "text-slate-500 hover:text-slate-700"
@@ -321,7 +674,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 setTab("register");
                 resetFormState();
               }}
-              className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                 tab === "register"
                   ? "bg-white text-slate-800 shadow-sm"
                   : "text-slate-500 hover:text-slate-700"
@@ -360,9 +713,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">
-                    Mật khẩu
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-medium text-slate-600">
+                      Mật khẩu
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTab("forgot");
+                        resetForgotState();
+                        if (loginEmailOrUser.includes("@")) {
+                          setForgotEmail(loginEmailOrUser);
+                        }
+                      }}
+                      className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 transition-colors cursor-pointer"
+                    >
+                      Quên mật khẩu?
+                    </button>
+                  </div>
+
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                       <Lock size={15} />
@@ -377,7 +746,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     <button
                       type="button"
                       onClick={() => setShowLoginPassword((s) => !s)}
-                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
                     >
                       {showLoginPassword ? <EyeOff size={15} /> : <Eye size={15} />}
                     </button>
@@ -402,7 +771,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 </div>
               </div>
 
-              {/* GOOGLE SIGN-IN BUTTON (Placed BELOW Login Button) */}
+              {/* GOOGLE SIGN-IN BUTTON */}
               <button
                 type="button"
                 onClick={() => {
@@ -501,7 +870,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       <button
                         type="button"
                         onClick={() => setShowRegPassword((s) => !s)}
-                        className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600"
+                        className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
                       >
                         {showRegPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                       </button>
@@ -527,7 +896,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       <button
                         type="button"
                         onClick={() => setShowRegConfirmPassword((s) => !s)}
-                        className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600"
+                        className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600 cursor-pointer"
                       >
                         {showRegConfirmPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                       </button>
@@ -616,7 +985,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 </div>
               </div>
 
-              {/* GOOGLE SIGN-IN BUTTON (Placed BELOW Register Button) */}
+              {/* GOOGLE SIGN-IN BUTTON */}
               <button
                 type="button"
                 onClick={() => {
