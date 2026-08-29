@@ -26,6 +26,7 @@ interface AuthContextType {
     password?: string
   ) => Promise<void>;
   forgotPassword: (email: string) => Promise<string>;
+  verifyResetOtp: (email: string, otpCode: string) => Promise<string>;
   resetPassword: (email: string, otpCode: string, newPassword: string) => Promise<string>;
   logout: () => void;
   switchRole: (role: Role) => void;
@@ -91,6 +92,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return await authService.forgotPassword(email);
   };
 
+  const verifyResetOtp = async (email: string, otpCode: string) => {
+    return await authService.verifyResetOtp(email, otpCode);
+  };
+
   const resetPassword = async (email: string, otpCode: string, newPassword: string) => {
     return await authService.resetPassword(email, otpCode, newPassword);
   };
@@ -120,6 +125,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loginWithGoogle,
         register,
         forgotPassword,
+        verifyResetOtp,
         resetPassword,
         logout,
         switchRole,

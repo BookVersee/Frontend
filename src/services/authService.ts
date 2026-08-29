@@ -268,6 +268,29 @@ export const authService = {
     }
   },
 
+  async verifyResetOtp(email: string, otpCode: string): Promise<string> {
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedOtp = otpCode.trim();
+    try {
+      const res = await apiClient.post<ApiResponse<string>>("/auth/VerifyOtp", {
+        email: trimmedEmail,
+        otpCode: trimmedOtp,
+      });
+      return res.data?.message || res.data?.data || "Mã OTP xác thực thành công. Vui lòng nhập mật khẩu mới.";
+    } catch (error: any) {
+      console.warn("VerifyOtp API error:", error);
+      if (error.response) {
+        const errorData = error.response.data;
+        const msg =
+          errorData?.message ||
+          errorData?.errors?.detail ||
+          (typeof errorData?.errors === "string" ? errorData.errors : null);
+        throw new Error(msg || "Mã OTP không chính xác hoặc đã hết hạn (hiệu lực 5 phút).");
+      }
+      throw new Error("Không thể kết nối đến máy chủ Backend để xác thực OTP.");
+    }
+  },
+
   async resetPassword(email: string, otpCode: string, newPassword: string): Promise<string> {
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedOtp = otpCode.trim();

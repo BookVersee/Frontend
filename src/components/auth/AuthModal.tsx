@@ -39,7 +39,7 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
-  const { login, loginWithGoogle, register, forgotPassword, resetPassword } = useAuth();
+  const { login, loginWithGoogle, register, forgotPassword, verifyResetOtp, resetPassword } = useAuth();
   const [tab, setTab] = useState<"login" | "register" | "forgot">("login");
 
   // Login form state
@@ -298,7 +298,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
-  const handleVerifyOtp = (e: React.FormEvent) => {
+  const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!forgotOtp.trim()) {
       setError("Vui lòng nhập mã OTP đã nhận được.");
@@ -313,7 +313,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       return;
     }
     setError("");
-    setForgotStep("new_password");
+    setLoading(true);
+    try {
+      const msg = await verifyResetOtp(forgotEmail.trim(), forgotOtp.trim());
+      setForgotSuccessMsg(msg || "Xác thực mã OTP thành công. Vui lòng nhập mật khẩu mới.");
+      setForgotStep("new_password");
+    } catch (err: any) {
+      setError(err?.message || "Mã OTP không chính xác hoặc đã hết hạn (hiệu lực 5 phút).");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleResetPassword = async (e: React.FormEvent) => {
@@ -496,8 +505,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 </button>
               </div>
 
-              <Btn type="submit" disabled={!forgotOtp.trim()} className="w-full">
-                <ShieldCheck size={15} /> Xác nhận mã OTP
+              <Btn type="submit" disabled={!forgotOtp.trim() || loading} className="w-full">
+                {loading ? (
+                  <>
+                    <RefreshCw size={15} className="animate-spin" /> Đang kiểm tra mã OTP...
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck size={15} /> Xác nhận mã OTP
+                  </>
+                )}
               </Btn>
             </form>
           )}
