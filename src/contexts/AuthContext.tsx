@@ -24,6 +24,8 @@ interface AuthContextType {
     address?: string,
     password?: string
   ) => Promise<void>;
+  forgotPassword: (email: string) => Promise<string>;
+  resetPassword: (email: string, otpCode: string, newPassword: string) => Promise<string>;
   logout: () => void;
   switchRole: (role: Role) => void;
 }
@@ -83,6 +85,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setToken(res.token);
   };
 
+  const forgotPassword = async (email: string) => {
+    return await authService.forgotPassword(email);
+  };
+
+  const resetPassword = async (email: string, otpCode: string, newPassword: string) => {
+    return await authService.resetPassword(email, otpCode, newPassword);
+  };
+
   const logout = () => {
     authService.logout();
     setUser(null);
@@ -107,6 +117,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         loginWithGoogle,
         register,
+        forgotPassword,
+        resetPassword,
         logout,
         switchRole,
       }}

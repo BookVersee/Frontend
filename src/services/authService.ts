@@ -223,12 +223,69 @@ export const authService = {
     }
   },
 
-  async forgotPassword(email: string): Promise<boolean> {
+  async forgotPassword(email: string): Promise<string> {
+    const trimmedEmail = email.trim().toLowerCase();
     try {
-      await apiClient.post("/user/ForgotPassword", { email });
-      return true;
-    } catch {
-      return true;
+      // Ưu tiên gọi endpoint chuẩn /auth/ForgotPassword (hoặc fallback sang /user/ForgotPassword nếu backend chưa merge)
+      try {
+        const res = await apiClient.post<ApiResponse<string>>("/auth/ForgotPassword", { email: trimmedEmail });
+        return res.data?.message || res.data?.data || "Mã OTP đặt lại mật khẩu đã được gửi về Email của bạn.";
+      } catch (err: any) {
+        if (err.response?.status === 404) {
+          const res = await apiClient.post<ApiResponse<string>>("/user/ForgotPassword", { email: trimmedEmail });
+          return res.data?.message || res.data?.data || "Mã OTP đặt lại mật khẩu đã được gửi về Email của bạn.";
+        }
+        throw err;
+      }
+    } catch (error: any) {
+      console.warn("ForgotPassword API error:", error);
+      if (error.response) {
+        const errorData = error.response.data;
+        const msg =
+          errorData?.message ||
+          errorData?.errors?.detail ||
+          (typeof errorData?.errors === "string" ? errorData.errors : null);
+        throw new Error(msg || "Không thể gửi mã OTP. Vui lòng kiểm tra lại email.");
+      }
+      throw new Error("Không thể kết nối đến máy chủ Backend. Vui lòng thử lại sau.");
+    }
+  },
+
+  async resetPassword(email: string, otpCode: string, newPassword: string): Promise<string> {
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedOtp = otpCode.trim();
+    try {
+      try {
+        // Gọi endpoint /auth/ResetPassword với DTO ResetPasswordWithOtpRequest { email, otpCode, newPassword }
+        const res = await apiClient.post<ApiResponse<string>>("/auth/ResetPassword", {
+          email: trimmedEmail,
+          otpCode: trimmedOtp,
+          newPassword,
+        });
+        return res.data?.message || res.data?.data || "Đặt lại mật khẩu thành công. Vui lòng đăng nhập.";
+      } catch (err: any) {
+        if (err.response?.status === 404) {
+          // Fallback sang endpoint /user/ResetPassword { email, resetToken, newPassword }
+          const res = await apiClient.post<ApiResponse<string>>("/user/ResetPassword", {
+            email: trimmedEmail,
+            resetToken: trimmedOtp,
+            newPassword,
+          });
+          return res.data?.message || res.data?.data || "Đặt lại mật khẩu thành công. Vui lòng đăng nhập.";
+        }
+        throw err;
+      }
+    } catch (error: any) {
+      console.warn("ResetPassword API error:", error);
+      if (error.response) {
+        const errorData = error.response.data;
+        const msg =
+          errorData?.message ||
+          errorData?.errors?.detail ||
+          (typeof errorData?.errors === "string" ? errorData.errors : null);
+        throw new Error(msg || "Đặt lại mật khẩu không thành công. Vui lòng kiểm tra lại mã OTP.");
+      }
+      throw new Error("Không thể kết nối đến máy chủ Backend. Vui lòng thử lại sau.");
     }
   },
 
