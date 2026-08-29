@@ -70,9 +70,9 @@ export interface OrderTracking {
 }
 
 export interface OrderFeedback {
-  id?: number;
-  orderId?: number;
-  bookId?: number;
+  id?: string | number;
+  orderId?: string | number;
+  bookId?: string | number;
   rating: number;
   content: string;
   type: "SHOP" | "BOOK";
@@ -86,8 +86,8 @@ export interface OrderFeedback {
 }
 
 export interface ReturnRequest {
-  id?: number;
-  orderId?: number;
+  id?: string | number;
+  orderId?: string | number;
   reason: string;
   reasonType: string;
   status: ReturnStatus;
@@ -123,8 +123,8 @@ export interface Order {
 
 export interface Transaction {
   id: string | number;
-  orderId: number;
-  userId?: number;
+  orderId?: string | number;
+  userId?: string | number;
   amount: number;
   type: "ONLINE" | "COD" | "SHIPPING_FEE" | "REFUND" | "SHOP_REVENUE" | "TOPUP";
   paidBy: string;
@@ -135,7 +135,7 @@ export interface Transaction {
 
 export interface DeliveryTask {
   id: string | number;
-  orderId: number;
+  orderId: string | number;
   trackingNumber: string;
   customer: string;
   address: string;
@@ -162,6 +162,7 @@ export interface User {
   status?: UserStatus;
   shopStatus?: "PENDING" | "ACTIVE" | "REJECTED";
   balance?: number;
+  authProvider?: "local" | "google";
 }
 
 export interface Shop {
@@ -182,7 +183,7 @@ export interface Shop {
 
 export interface AppNotification {
   id: string | number;
-  userId: number;
+  userId?: string | number;
   title: string;
   message: string;
   read: boolean;
@@ -193,13 +194,14 @@ export interface AppNotification {
 
 export interface ChatMessage {
   id: string | number;
-  senderId: number;
-  receiverId: number;
+  senderId: string | number;
+  receiverId?: string | number;
   shopId?: string | number;
   text: string;
   createdAt: string;
   isFromCustomer: boolean;
   senderName?: string;
+  imageUrl?: string;
 }
 
 export interface AuthResponse {
@@ -216,7 +218,8 @@ export type CustomerPage =
   | "orders"
   | "orderDetail"
   | "profile"
-  | "shopProfile";
+  | "shopProfile"
+  | "paymentResult";
 
 export interface ApiResponse<T> {
   success: boolean;

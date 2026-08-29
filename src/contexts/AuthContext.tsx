@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { User, Role } from "../types";
-import { authService } from "../services/authService";
+import { authService, RegisterData } from "../services/authService";
 import { getStoredUser, getStoredToken } from "../utils/storage";
 
 interface AuthContextType {
@@ -9,7 +9,25 @@ interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   login: (email: string, password?: string) => Promise<void>;
-  register: (name: string, email: string, role?: Role, phone?: string) => Promise<void>;
+  loginWithGoogle: (idTokenOrData?: string | {
+    email?: string;
+    name?: string;
+    avatar?: string;
+    role?: Role;
+    googleId?: string;
+    idToken?: string;
+  }) => Promise<void>;
+  register: (
+    data: RegisterData | string,
+    email?: string,
+    role?: Role,
+    phone?: string,
+    address?: string,
+    password?: string
+  ) => Promise<void>;
+  forgotPassword: (email: string) => Promise<string>;
+  verifyResetOtp: (email: string, otpCode: string) => Promise<string>;
+  resetPassword: (email: string, otpCode: string, newPassword: string) => Promise<string>;
   logout: () => void;
   switchRole: (role: Role) => void;
 }
@@ -42,11 +60,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setToken(res.token);
   };
 
-  const register = async (name: string, email: string, newRole: Role = "customer", phone?: string) => {
-    const res = await authService.register(name, email, newRole, phone);
+  const loginWithGoogle = async (idTokenOrData?: string | {
+    email?: string;
+    name?: string;
+    avatar?: string;
+    role?: Role;
+    googleId?: string;
+    idToken?: string;
+  }) => {
+    const res = await authService.loginWithGoogle(idTokenOrData);
     setUser(res.user);
     setRole(res.user.role);
     setToken(res.token);
+  };
+
+  const register = async (
+    data: RegisterData | string,
+    email?: string,
+    newRole: Role = "customer",
+    phone?: string,
+    address?: string,
+    password?: string
+  ) => {
+    const res = await authService.register(data, email, newRole, phone, address, password);
+    setUser(res.user);
+    setRole(res.user.role);
+    setToken(res.token);
+  };
+
+  const forgotPassword = async (email: string) => {
+    return await authService.forgotPassword(email);
+  };
+
+  const verifyResetOtp = async (email: string, otpCode: string) => {
+    return await authService.verifyResetOtp(email, otpCode);
+  };
+
+  const resetPassword = async (email: string, otpCode: string, newPassword: string) => {
+    return await authService.resetPassword(email, otpCode, newPassword);
   };
 
   const logout = () => {
@@ -71,7 +122,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         token,
         isAuthenticated: !!token,
         login,
+        loginWithGoogle,
         register,
+        forgotPassword,
+        verifyResetOtp,
+        resetPassword,
         logout,
         switchRole,
       }}

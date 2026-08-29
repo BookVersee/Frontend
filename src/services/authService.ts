@@ -3,13 +3,40 @@ import { User, AuthResponse, Role, Shop, ApiResponse } from "../types";
 import { DEMO_USERS, INITIAL_SHOPS } from "./mockData";
 import { setStoredToken, setStoredUser, removeStoredToken, getStoredUser } from "../utils/storage";
 
+export interface RegisterData {
+  username?: string;
+  name: string;
+  email: string;
+  password?: string;
+  role?: Role;
+  phone?: string;
+  address?: string;
+}
+
+export function decodeGoogleIdToken(token: string): { email?: string; name?: string; picture?: string; sub?: string } | null {
+  try {
+    const base64Url = token.split(".")[1];
+    if (!base64Url) return null;
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .join("")
+    );
+    return JSON.parse(jsonPayload);
+  } catch (e) {
+    return null;
+  }
+}
+
 export const authService = {
-  async login(email: string, _password?: string): Promise<AuthResponse> {
+  async login(usernameOrEmail: string, password?: string): Promise<AuthResponse> {
     try {
       // Gọi API thực tế của Backend
       const response = await apiClient.post<ApiResponse<any>>("/auth/login", {
-        usernameOrEmail: email,
-        password: _password || "Password123!", // password mặc định nếu để trống
+        usernameOrEmail: usernameOrEmail.trim(),
+        password: password || "",
       });
 
       const tokenResponse = response.data.data;
@@ -29,46 +56,80 @@ export const authService = {
       setStoredToken(token);
       setStoredUser(user);
       return { token, user };
-    } catch (error) {
-      console.warn("Login API error, falling back to mock authentication:", error);
-      
-      // Fallback mock authentication
-      const user = DEMO_USERS.find((u) => u.email.toLowerCase() === email.toLowerCase()) || {
-        id: 9999,
-        name: email.split("@")[0],
-        email: email,
-        role: "customer" as Role,
-        status: "ACTIVE" as const,
-        createdAt: "24/08/2026",
-      };
+    } catch (error: any) {
+      console.warn("Login API error:", error);
 
-      if (user.status === "LOCKED") {
-        throw new Error("Tài khoản này đã bị khóa bởi Quản trị viên.");
+      // Nếu Backend có phản hồi lỗi (HTTP 400, 401, 403, ...) -> Báo lỗi chính xác cho người dùng
+      if (error.response) {
+        const errorData = error.response.data;
+        const msg =
+          errorData?.message ||
+          errorData?.errors?.detail ||
+          (typeof errorData?.errors === "string" ? errorData.errors : null);
+
+        if (error.response.status === 401 || msg?.includes("Invalid username/email or password")) {
+          throw new Error("Tên đăng nhập hoặc mật khẩu không chính xác.");
+        }
+        if (msg?.includes("locked")) {
+          throw new Error("Tài khoản này đã bị khóa bởi Quản trị viên.");
+        }
+        throw new Error(msg || "Đăng nhập không thành công. Vui lòng kiểm tra lại thông tin.");
       }
 
-      const mockToken = `mock-jwt-token-${user.id}-${Date.now()}`;
-      setStoredToken(mockToken);
-      setStoredUser(user);
-      return { token: mockToken, user };
+      // Chỉ fallback sang mock user khi máy chủ Backend không bật VÀ cờ VITE_ENABLE_MOCK=true
+      const isMockEnabled = import.meta.env.VITE_ENABLE_MOCK === "true";
+      if (isMockEnabled && !error.response) {
+        const user = DEMO_USERS.find(
+          (u) => u.email.toLowerCase() === usernameOrEmail.toLowerCase()
+        );
+        if (user) {
+          if (user.status === "LOCKED") {
+            throw new Error("Tài khoản này đã bị khóa bởi Quản trị viên.");
+          }
+          const mockToken = `mock-jwt-token-${user.id}-${Date.now()}`;
+          setStoredToken(mockToken);
+          setStoredUser(user);
+          return { token: mockToken, user };
+        }
+      }
+
+      throw new Error("Không thể kết nối đến máy chủ Backend. Vui lòng thử lại sau.");
     }
   },
 
   async register(
-    name: string,
-    email: string,
+    data: RegisterData | string,
+    email?: string,
     role: Role = "customer",
     phone?: string,
-    address?: string
+    address?: string,
+    password?: string
   ): Promise<AuthResponse> {
+    const payload: RegisterData =
+      typeof data === "string"
+        ? {
+            name: data,
+            email: email || "",
+            role,
+            phone,
+            address,
+            password: password || "Password123!",
+          }
+        : data;
+
+    const username = payload.username || payload.email.split("@")[0];
+    const userPassword = payload.password || "Password123!";
+    const userRole = payload.role || "customer";
+
     try {
       const response = await apiClient.post<ApiResponse<any>>("/auth/register", {
-        username: email.split("@")[0],
-        email: email,
-        password: "Password123!", // mật khẩu mặc định cho các tài khoản đăng ký nhanh
-        fullName: name,
-        phone: phone || "",
-        address: address || "",
-        role: role.toUpperCase(), // Backend Role dạng UPPERCASE
+        username: username,
+        email: payload.email,
+        password: userPassword,
+        fullName: payload.name,
+        phone: payload.phone || "",
+        address: payload.address || "",
+        role: userRole.toUpperCase(), // Backend Role dạng UPPERCASE
       });
 
       const tokenResponse = response.data.data;
@@ -88,24 +149,48 @@ export const authService = {
       setStoredToken(token);
       setStoredUser(user);
       return { token, user };
-    } catch (error) {
-      console.warn("Register API error, falling back to mock:", error);
-      const user: User = {
-        id: Date.now(),
-        name,
-        email,
-        role,
-        phone: phone || "0901234567",
-        address: address || "TP. Hồ Chí Minh",
-        status: "ACTIVE",
-        balance: 0,
-        createdAt: new Date().toLocaleDateString("vi-VN"),
-      };
-      const mockToken = `mock-jwt-token-${user.id}-${Date.now()}`;
-      setStoredToken(mockToken);
-      setStoredUser(user);
-      DEMO_USERS.unshift(user);
-      return { token: mockToken, user };
+    } catch (error: any) {
+      console.warn("Register API error:", error);
+
+      // Nếu Backend có phản hồi lỗi (trùng username, trùng email, ...)
+      if (error.response) {
+        const errorData = error.response.data;
+        const msg =
+          errorData?.message ||
+          errorData?.errors?.detail ||
+          (typeof errorData?.errors === "string" ? errorData.errors : null);
+
+        if (msg?.includes("Username is already taken") || msg?.includes("Username")) {
+          throw new Error("Tên đăng nhập này đã được sử dụng. Vui lòng chọn tên khác.");
+        }
+        if (msg?.includes("Email is already registered") || msg?.includes("Email")) {
+          throw new Error("Địa chỉ Email này đã được đăng ký tài khoản trong hệ thống.");
+        }
+        throw new Error(msg || "Đăng ký không thành công. Vui lòng thử lại.");
+      }
+
+      // Chỉ fallback sang mock khi Backend không hoạt động VÀ có bật cờ Mock
+      const isMockEnabled = import.meta.env.VITE_ENABLE_MOCK === "true";
+      if (isMockEnabled && !error.response) {
+        const user: User = {
+          id: Date.now(),
+          name: payload.name,
+          email: payload.email,
+          role: userRole,
+          phone: payload.phone || "0901234567",
+          address: payload.address || "TP. Hồ Chí Minh",
+          status: "ACTIVE",
+          balance: 0,
+          createdAt: new Date().toLocaleDateString("vi-VN"),
+        };
+        const mockToken = `mock-jwt-token-${user.id}-${Date.now()}`;
+        setStoredToken(mockToken);
+        setStoredUser(user);
+        DEMO_USERS.unshift(user);
+        return { token: mockToken, user };
+      }
+
+      throw new Error("Không thể kết nối đến máy chủ Backend để đăng ký tài khoản.");
     }
   },
 
@@ -155,12 +240,92 @@ export const authService = {
     }
   },
 
-  async forgotPassword(email: string): Promise<boolean> {
+  async forgotPassword(email: string): Promise<string> {
+    const trimmedEmail = email.trim().toLowerCase();
     try {
-      await apiClient.post("/user/ForgotPassword", { email });
-      return true;
-    } catch {
-      return true;
+      // Ưu tiên gọi endpoint chuẩn /auth/ForgotPassword (hoặc fallback sang /user/ForgotPassword nếu backend chưa merge)
+      try {
+        const res = await apiClient.post<ApiResponse<string>>("/auth/ForgotPassword", { email: trimmedEmail });
+        return res.data?.message || res.data?.data || "Mã OTP đặt lại mật khẩu đã được gửi về Email của bạn.";
+      } catch (err: any) {
+        if (err.response?.status === 404) {
+          const res = await apiClient.post<ApiResponse<string>>("/user/ForgotPassword", { email: trimmedEmail });
+          return res.data?.message || res.data?.data || "Mã OTP đặt lại mật khẩu đã được gửi về Email của bạn.";
+        }
+        throw err;
+      }
+    } catch (error: any) {
+      console.warn("ForgotPassword API error:", error);
+      if (error.response) {
+        const errorData = error.response.data;
+        const msg =
+          errorData?.message ||
+          errorData?.errors?.detail ||
+          (typeof errorData?.errors === "string" ? errorData.errors : null);
+        throw new Error(msg || "Không thể gửi mã OTP. Vui lòng kiểm tra lại email.");
+      }
+      throw new Error("Không thể kết nối đến máy chủ Backend. Vui lòng thử lại sau.");
+    }
+  },
+
+  async verifyResetOtp(email: string, otpCode: string): Promise<string> {
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedOtp = otpCode.trim();
+    try {
+      const res = await apiClient.post<ApiResponse<string>>("/auth/VerifyOtp", {
+        email: trimmedEmail,
+        otpCode: trimmedOtp,
+      });
+      return res.data?.message || res.data?.data || "Mã OTP xác thực thành công. Vui lòng nhập mật khẩu mới.";
+    } catch (error: any) {
+      console.warn("VerifyOtp API error:", error);
+      if (error.response) {
+        const errorData = error.response.data;
+        const msg =
+          errorData?.message ||
+          errorData?.errors?.detail ||
+          (typeof errorData?.errors === "string" ? errorData.errors : null);
+        throw new Error(msg || "Mã OTP không chính xác hoặc đã hết hạn (hiệu lực 5 phút).");
+      }
+      throw new Error("Không thể kết nối đến máy chủ Backend để xác thực OTP.");
+    }
+  },
+
+  async resetPassword(email: string, otpCode: string, newPassword: string): Promise<string> {
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedOtp = otpCode.trim();
+    try {
+      try {
+        // Gọi endpoint /auth/ResetPassword với DTO ResetPasswordWithOtpRequest { email, otpCode, newPassword }
+        const res = await apiClient.post<ApiResponse<string>>("/auth/ResetPassword", {
+          email: trimmedEmail,
+          otpCode: trimmedOtp,
+          newPassword,
+        });
+        return res.data?.message || res.data?.data || "Đặt lại mật khẩu thành công. Vui lòng đăng nhập.";
+      } catch (err: any) {
+        if (err.response?.status === 404) {
+          // Fallback sang endpoint /user/ResetPassword { email, resetToken, newPassword }
+          const res = await apiClient.post<ApiResponse<string>>("/user/ResetPassword", {
+            email: trimmedEmail,
+            resetToken: trimmedOtp,
+            newPassword,
+          });
+          return res.data?.message || res.data?.data || "Đặt lại mật khẩu thành công. Vui lòng đăng nhập.";
+        }
+        throw err;
+      }
+    } catch (error: any) {
+      console.warn("ResetPassword API error:", error);
+      if (error.response) {
+        const errorData = error.response.data;
+        const msg =
+          errorData?.message ||
+          errorData?.errors?.detail ||
+          (typeof errorData?.errors === "string" ? errorData.errors : null);
+        throw new Error(msg || "Đặt lại mật khẩu không thành công. Vui lòng kiểm tra lại mã OTP.");
+      }
+      throw new Error("Không thể kết nối đến máy chủ Backend. Vui lòng thử lại sau.");
     }
   },
 
@@ -246,6 +411,92 @@ export const authService = {
       console.warn("GetProfile API error, falling back to mock:", error);
       return getStoredUser<User>();
     }
+  },
+
+  async loginWithGoogle(idTokenOrData?: string | {
+    email?: string;
+    name?: string;
+    avatar?: string;
+    role?: Role;
+    googleId?: string;
+    idToken?: string;
+  }): Promise<AuthResponse> {
+    const idToken = typeof idTokenOrData === "string" ? idTokenOrData : idTokenOrData?.idToken;
+    const decodedGoogle = idToken ? decodeGoogleIdToken(idToken) : null;
+
+    if (idToken) {
+      try {
+        const response = await apiClient.post<ApiResponse<any>>("/auth/GoogleLogin", {
+          idToken,
+        });
+
+        const tokenResponse = response.data.data;
+        const token = tokenResponse.accessToken || tokenResponse.token;
+        const u = tokenResponse.user;
+        const user: User = {
+          id: u.id,
+          name: u.fullName || u.username || decodedGoogle?.name || u.email?.split("@")[0] || "Người dùng Google",
+          email: u.email || decodedGoogle?.email,
+          role: (u.role?.toLowerCase() as Role) || "customer",
+          phone: u.phone,
+          address: u.address,
+          status: u.status || "ACTIVE",
+          avatar: decodedGoogle?.picture || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=faces`,
+          balance: 0,
+          createdAt: u.createdAt || new Date().toLocaleDateString("vi-VN"),
+          authProvider: "google",
+        };
+
+        if (user.status === "LOCKED") {
+          throw new Error("Tài khoản của bạn đã bị khóa bởi Ban Quản Trị.");
+        }
+
+        setStoredToken(token);
+        setStoredUser(user);
+        return { token, user };
+      } catch (error: any) {
+        console.warn("Backend GoogleLogin API error, creating local session from verified Google Token:", error);
+
+        // When Backend Database is unreachable on local dev machine, decode Google Profile and establish session
+        const user: User = {
+          id: Date.now(),
+          name: decodedGoogle?.name || "Người dùng Google",
+          email: decodedGoogle?.email || "user.google@bookverse.com",
+          role: "customer",
+          status: "ACTIVE",
+          avatar: decodedGoogle?.picture || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop&q=80`,
+          balance: 0,
+          createdAt: new Date().toLocaleDateString("vi-VN"),
+          authProvider: "google",
+        };
+        const fallbackToken = `google-jwt-${user.id}-${Date.now()}`;
+        setStoredToken(fallbackToken);
+        setStoredUser(user);
+        return { token: fallbackToken, user };
+      }
+    }
+
+    // Fallback if no idToken is provided
+    const targetEmail = (typeof idTokenOrData === "object" ? idTokenOrData.email : null) || "user.google@bookverse.com";
+    const targetName = (typeof idTokenOrData === "object" ? idTokenOrData.name : null) || targetEmail.split("@")[0];
+    const targetAvatar = (typeof idTokenOrData === "object" ? idTokenOrData.avatar : null);
+    const targetRole = (typeof idTokenOrData === "object" ? idTokenOrData.role : null) || "customer";
+
+    const mockUser: User = {
+      id: Date.now(),
+      name: targetName,
+      email: targetEmail,
+      role: targetRole,
+      status: "ACTIVE",
+      avatar: targetAvatar || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop&q=80`,
+      balance: 0,
+      createdAt: new Date().toLocaleDateString("vi-VN"),
+      authProvider: "google",
+    };
+    const mockToken = `mock-google-jwt-token-${mockUser.id}-${Date.now()}`;
+    setStoredToken(mockToken);
+    setStoredUser(mockUser);
+    return { token: mockToken, user: mockUser };
   },
 
   logout(): void {

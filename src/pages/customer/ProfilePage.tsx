@@ -80,11 +80,25 @@ export const ProfilePage: React.FC = () => {
         {/* Left Column: Avatar & Wallet */}
         <div className="space-y-4">
           <Card className="p-6 text-center">
-            <div className="w-20 h-20 rounded-full bg-blue-600 text-white flex items-center justify-center text-2xl font-bold mx-auto mb-3 shadow-md">
-              {user?.name ? user.name[0] : "U"}
-            </div>
+            {user?.avatar ? (
+              <img
+                src={user.avatar}
+                alt={user?.name || "Avatar"}
+                className="w-20 h-20 rounded-full object-cover border-2 border-blue-500/20 mx-auto mb-3 shadow-md ring-4 ring-blue-50"
+              />
+            ) : (
+              <div className="w-20 h-20 rounded-full bg-blue-600 text-white flex items-center justify-center text-2xl font-bold mx-auto mb-3 shadow-md">
+                {user?.name ? user.name[0] : "U"}
+              </div>
+            )}
             <h2 className="font-bold text-slate-800 text-base">{user?.name}</h2>
             <p className="text-xs text-slate-400 mt-0.5">{user?.email}</p>
+            {user?.authProvider === "google" && (
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 text-[11px] font-semibold border border-blue-200 mt-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                Tài khoản Google liên kết
+              </div>
+            )}
             <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
               <span>Vai trò hiện tại</span>
               <span className="font-bold text-blue-600 uppercase">{user?.role}</span>

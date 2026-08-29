@@ -9,8 +9,8 @@ interface CartContextType {
   shippingFee: number;
   total: number;
   addToCart: (book: Book, quantity?: number) => void;
-  updateQuantity: (bookId: number, quantity: number) => void;
-  removeFromCart: (bookId: number) => void;
+  updateQuantity: (bookId: string | number, quantity: number) => void;
+  removeFromCart: (bookId: string | number) => void;
   clearCart: () => void;
   setCart: React.Dispatch<React.SetStateAction<CartItem[]>>;
 }
@@ -31,10 +31,10 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const addToCart = (book: Book, quantity = 1) => {
     setCart((prev) => {
-      const existing = prev.find((item) => item.book.id === book.id);
+      const existing = prev.find((item) => String(item.book.id) === String(book.id));
       if (existing) {
         return prev.map((item) =>
-          item.book.id === book.id
+          String(item.book.id) === String(book.id)
             ? { ...item, quantity: item.quantity + quantity }
             : item
         );
@@ -43,20 +43,20 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
-  const updateQuantity = (bookId: number, quantity: number) => {
+  const updateQuantity = (bookId: string | number, quantity: number) => {
     if (quantity <= 0) {
       removeFromCart(bookId);
     } else {
       setCart((prev) =>
         prev.map((item) =>
-          item.book.id === bookId ? { ...item, quantity } : item
+          String(item.book.id) === String(bookId) ? { ...item, quantity } : item
         )
       );
     }
   };
 
-  const removeFromCart = (bookId: number) => {
-    setCart((prev) => prev.filter((item) => item.book.id !== bookId));
+  const removeFromCart = (bookId: string | number) => {
+    setCart((prev) => prev.filter((item) => String(item.book.id) !== String(bookId)));
   };
 
   const clearCart = () => {

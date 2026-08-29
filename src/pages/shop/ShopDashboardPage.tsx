@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Package,
   BookOpen,
@@ -16,9 +16,15 @@ import {
   CornerDownRight,
   Send,
   Calendar,
+  User as UserIcon,
+  Wifi,
+  WifiOff,
+  Search,
 } from "lucide-react";
-import { Order, Book, OrderStatus, OrderFeedback } from "../../types";
+import { Order, Book, OrderStatus, OrderFeedback, ChatMessage } from "../../types";
 import { shopService } from "../../services/shopService";
+import { chatService, ChatThread } from "../../services/chatService";
+import { signalRService } from "../../services/signalRService";
 import { useAuth } from "../../contexts/AuthContext";
 import { orderStatusInfo } from "../../utils/status";
 import { fmt } from "../../utils/format";
@@ -34,7 +40,7 @@ export const ShopDashboardPage: React.FC = () => {
   const shopId = user?.shopId || 1;
   const shopName = user?.shopName || "Nhà sách Phương Nam";
 
-  const [tab, setTab] = useState<"orders" | "products" | "feedbacks" | "revenue">("orders");
+  const [tab, setTab] = useState<"orders" | "products" | "feedbacks" | "revenue" | "chat">("orders");
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Book[]>([]);
   const [feedbacks, setFeedbacks] = useState<{ orderId: number; feedback: OrderFeedback }[]>([]);
@@ -63,17 +69,33 @@ export const ShopDashboardPage: React.FC = () => {
   // Revenue filter period
   const [revenuePeriod, setRevenuePeriod] = useState<"day" | "month" | "year">("month");
 
+  // ==========================================
+  // REAL-TIME CHAT & MESSAGING STATE (SHOP)
+  // ==========================================
+  const [chatThreads, setChatThreads] = useState<ChatThread[]>([]);
+  const [selectedThread, setSelectedThread] = useState<ChatThread | null>(null);
+  const [threadMessages, setThreadMessages] = useState<ChatMessage[]>([]);
+  const [shopReplyInput, setShopReplyInput] = useState("");
+  const [isRealTimeChatConnected, setIsRealTimeChatConnected] = useState(false);
+  const [threadSearch, setThreadSearch] = useState("");
+  const chatMessagesEndRef = useRef<HTMLDivElement>(null);
+
   const loadData = async () => {
     setLoading(true);
     try {
-      const [ordersData, productsData, feedbacksData] = await Promise.all([
+      const [ordersData, productsData, feedbacksData, threadsData] = await Promise.all([
         shopService.getShopOrders(shopId),
         shopService.getShopProducts(shopId),
         shopService.getShopFeedbacks(shopId),
+        chatService.getShopConversations(shopId),
       ]);
       setOrders(ordersData);
       setProducts(productsData);
       setFeedbacks(feedbacksData);
+      setChatThreads(threadsData);
+      if (threadsData.length > 0 && !selectedThread) {
+        setSelectedThread(threadsData[0]);
+      }
     } finally {
       setLoading(false);
     }
@@ -82,6 +104,144 @@ export const ShopDashboardPage: React.FC = () => {
   useEffect(() => {
     loadData();
   }, [shopId]);
+
+  // Khởi tạo kết nối SignalR cho Shop Dashboard
+  useEffect(() => {
+    let isMounted = true;
+
+    signalRService.startConnection().then((conn) => {
+      if (conn && isMounted) {
+        setIsRealTimeChatConnected(true);
+      }
+    });
+
+    const unsubscribe = signalRService.onReceiveMessage((incomingMsg: any) => {
+      if (!isMounted) return;
+
+      const formatted: ChatMessage = {
+        id: incomingMsg.messageId || incomingMsg.id || Date.now(),
+        senderId: incomingMsg.senderId,
+        receiverId: incomingMsg.receiverId,
+        shopId: incomingMsg.shopId || shopId,
+        text: incomingMsg.content || incomingMsg.text || "",
+        createdAt: incomingMsg.createdAt
+          ? new Date(incomingMsg.createdAt).toLocaleTimeString("vi-VN", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : new Date().toLocaleTimeString("vi-VN", {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+        isFromCustomer: incomingMsg.senderId !== String(shopId),
+        senderName: incomingMsg.senderName,
+        imageUrl: incomingMsg.imageUrl,
+      };
+
+      // Cập nhật tin nhắn trong khung chat đang mở
+      setThreadMessages((prev) => {
+        if (prev.some((m) => m.id === formatted.id)) return prev;
+        return [...prev, formatted];
+      });
+
+      // Cập nhật danh sách hội thoại
+      setChatThreads((prev) =>
+        prev.map((t) => {
+          if (t.chatId === incomingMsg.chatId || String(t.userId) === String(incomingMsg.senderId)) {
+            return {
+              ...t,
+              lastMessage: formatted.text,
+              updatedAt: "Vừa xong",
+              unreadCount: t.chatId === selectedThread?.chatId ? 0 : t.unreadCount + 1,
+            };
+          }
+          return t;
+        })
+      );
+    });
+
+    const handleLocalUpdate = () => {
+      chatService.getShopConversations(shopId).then(setChatThreads);
+      if (selectedThread) {
+        chatService
+          .getMessages({ chatId: selectedThread.chatId, shopId })
+          .then((res) => setThreadMessages(res.messages));
+      }
+    };
+
+    window.addEventListener("bookverse_chat_updated", handleLocalUpdate);
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+      window.removeEventListener("bookverse_chat_updated", handleLocalUpdate);
+    };
+  }, [shopId, selectedThread?.chatId]);
+
+  // Khi chọn một khách hàng từ danh sách hội thoại
+  useEffect(() => {
+    if (selectedThread) {
+      chatService
+        .getMessages({ chatId: selectedThread.chatId, shopId })
+        .then((res) => {
+          setThreadMessages(res.messages);
+        });
+
+      signalRService.joinChatRoom(selectedThread.chatId);
+
+      // Đánh dấu đã đọc
+      setChatThreads((prev) =>
+        prev.map((t) =>
+          t.chatId === selectedThread.chatId ? { ...t, unreadCount: 0 } : t
+        )
+      );
+    }
+  }, [selectedThread?.chatId, shopId]);
+
+  useEffect(() => {
+    chatMessagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [threadMessages]);
+
+  const handleSelectThread = (t: ChatThread) => {
+    if (selectedThread?.chatId) {
+      signalRService.leaveChatRoom(selectedThread.chatId);
+    }
+    setSelectedThread(t);
+  };
+
+  const handleSendShopReply = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!shopReplyInput.trim() || !selectedThread) return;
+
+    const textToSend = shopReplyInput.trim();
+    setShopReplyInput("");
+
+    try {
+      const res = await chatService.sendMessage({
+        chatId: selectedThread.chatId,
+        senderId: shopId,
+        receiverId: selectedThread.userId,
+        shopId,
+        text: textToSend,
+        isFromCustomer: false,
+        senderName: shopName,
+      });
+
+      setThreadMessages((prev) => [...prev, res.message]);
+
+      setChatThreads((prev) =>
+        prev.map((t) =>
+          t.chatId === selectedThread.chatId
+            ? { ...t, lastMessage: textToSend, updatedAt: "Vừa xong" }
+            : t
+        )
+      );
+    } catch (err) {
+      console.warn("Error sending shop reply:", err);
+    }
+  };
+
+  const totalUnreadChats = chatThreads.reduce((s, t) => s + (t.unreadCount || 0), 0);
 
   const handleUpdateStatus = async (orderId: number, nextStatus: OrderStatus) => {
     await shopService.updateOrderStatus(orderId, nextStatus);
@@ -105,22 +265,22 @@ export const ShopDashboardPage: React.FC = () => {
   };
 
   const handleOpenEditModal = (book: Book) => {
-    setEditingBookId(book.id);
+    setEditingBookId(Number(book.id));
     setTitle(book.title);
     setAuthor(book.author);
     setPublisher(book.publisher);
     setPrice(String(book.price));
     setStock(String(book.stock));
-    setDesc(book.description || "");
+    setDesc(book.description);
     setIsbn(book.isbn || "");
-    setColor1(book.coverColor || "#1d4ed8");
-    setColor2(book.coverColor2 || "#3b82f6");
+    setColor1(book.coverColor);
+    setColor2(book.coverColor2);
     setShowProductModal(true);
   };
 
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !author) return;
+    if (!title.trim() || !author.trim()) return;
 
     if (editingBookId) {
       const updated = await shopService.updateProduct(editingBookId, {
@@ -199,6 +359,13 @@ export const ShopDashboardPage: React.FC = () => {
       : true
   );
 
+  const filteredChatThreads = chatThreads.filter((t) =>
+    threadSearch
+      ? t.userName.toLowerCase().includes(threadSearch.toLowerCase()) ||
+        (t.lastMessage && t.lastMessage.toLowerCase().includes(threadSearch.toLowerCase()))
+      : true
+  );
+
   const revenue = orders
     .filter((o) => o.orderStatus === "DELIVERED")
     .reduce((s, o) => s + o.totalAmount, 0);
@@ -247,6 +414,20 @@ export const ShopDashboardPage: React.FC = () => {
           >
             <MessageSquare size={14} /> Đánh giá ({feedbacks.length})
           </Btn>
+          <Btn
+            onClick={() => setTab("chat")}
+            variant={tab === "chat" ? "primary" : "outline"}
+            size="sm"
+            color="#047857"
+            className="relative"
+          >
+            <MessageSquare size={14} /> Hộp thư tư vấn
+            {totalUnreadChats > 0 && (
+              <span className="ml-1.5 px-1.5 py-0.2 rounded-full bg-red-500 text-white text-[10px] font-bold animate-pulse">
+                {totalUnreadChats}
+              </span>
+            )}
+          </Btn>
         </div>
       </div>
 
@@ -282,221 +463,205 @@ export const ShopDashboardPage: React.FC = () => {
         />
       </div>
 
-      {/* Orders Management Tab */}
+      {/* TAB 1: ORDERS */}
       {tab === "orders" && (
         <Card className="overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
             <h2 className="font-bold text-slate-800 text-base">
-              Danh sách đơn đặt hàng của shop
+              Danh sách đơn hàng cần xử lý
             </h2>
-            <span className="text-xs text-slate-400 font-medium">
-              Cập nhật trực tiếp
-            </span>
-          </div>
-
-          {loading ? (
-            <div className="p-8 text-center text-slate-400 animate-pulse">
-              Đang tải danh sách đơn hàng...
-            </div>
-          ) : orders.length === 0 ? (
-            <div className="p-12 text-center text-slate-400">
-              Chưa có đơn hàng nào cho cửa hàng này.
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-100">
-              {orders.map((order) => {
-                const si = orderStatusInfo(order.orderStatus);
-                return (
-                  <div
-                    key={order.id}
-                    className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/70 transition-colors"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="text-xs font-mono font-bold text-slate-500">
-                          #{order.id}
-                        </span>
-                        <Badge
-                          label={si.label}
-                          color={si.color}
-                          bg={si.bg}
-                          icon={si.icon}
-                        />
-                        <span className="text-xs text-slate-400 font-mono">
-                          {order.createdAt}
-                        </span>
-                      </div>
-
-                      <p className="text-sm font-semibold text-slate-800">
-                        Khách: {order.customerName} • SĐT: {order.customerPhone}
-                      </p>
-                      <p className="text-xs text-slate-500 mt-1">
-                        Sách đặt:{" "}
-                        <span className="text-slate-700">
-                          {order.items
-                            .map((i) => `${i.book.title} (×${i.quantity})`)
-                            .join(", ")}
-                        </span>
-                      </p>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        Địa chỉ giao: {order.shippingAddress}
-                      </p>
-                      <p className="text-sm font-bold text-blue-600 mt-2">
-                        Tổng thu: {fmt(order.totalAmount + order.shippingFee)} •{" "}
-                        <span className="text-xs font-normal text-slate-500">
-                          Hình thức: {order.paymentMethod}
-                        </span>
-                      </p>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2 shrink-0">
-                      {order.orderStatus === "PENDING" && (
-                        <>
-                          <Btn
-                            size="sm"
-                            color="#047857"
-                            onClick={() =>
-                              handleUpdateStatus(order.id, "PROCESSING")
-                            }
-                          >
-                            <Check size={14} /> Xác nhận đóng gói
-                          </Btn>
-                          <Btn
-                            variant="danger"
-                            size="sm"
-                            onClick={() =>
-                              handleUpdateStatus(order.id, "CANCELLED")
-                            }
-                          >
-                            <X size={14} /> Từ chối
-                          </Btn>
-                        </>
-                      )}
-
-                      {order.orderStatus === "PROCESSING" && (
-                        <Btn
-                          size="sm"
-                          color="#6d28d9"
-                          onClick={() => handleUpdateStatus(order.id, "SHIPPED")}
-                        >
-                          <Truck size={14} /> Bàn giao shipper GHN
-                        </Btn>
-                      )}
-
-                      {order.orderStatus === "SHIPPED" && (
-                        <Badge
-                          label="Đang giao hàng"
-                          color="#6d28d9"
-                          bg="#ede9fe"
-                          icon={<Truck size={12} />}
-                        />
-                      )}
-
-                      {order.orderStatus === "DELIVERED" && (
-                        <Badge
-                          label="Hoàn tất & Đã thanh toán"
-                          color="#047857"
-                          bg="#d1fae5"
-                          icon={<CheckCircle size={12} />}
-                        />
-                      )}
-
-                      {order.orderStatus === "CANCELLED" && (
-                        <Badge label="Đã hủy" color="#b91c1c" bg="#fee2e2" />
-                      )}
-
-                      {order.orderStatus === "RETURNED" && (
-                        <Badge label="Đã hoàn hàng" color="#92400e" bg="#fef3c7" />
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* Products Management Tab */}
-      {tab === "products" && (
-        <Card className="overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3 flex-1 max-w-sm">
-              <input
-                value={productSearch}
-                onChange={(e) => setProductSearch(e.target.value)}
-                placeholder="Tìm sách trong kho..."
-                className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl px-3 py-1.5 bg-slate-50 focus:outline-none"
-              />
-            </div>
-            <Btn
-              size="sm"
-              color="#047857"
-              onClick={handleOpenAddModal}
-            >
-              <Plus size={14} /> Đăng bán sách mới
-            </Btn>
+            <Badge
+              label={`${pendingCount} đơn chờ xử lý`}
+              color="#b45309"
+              bg="#fef3c7"
+            />
           </div>
 
           <div className="divide-y divide-slate-100">
-            {filteredProducts.map((book) => (
-              <div
-                key={book.id}
-                className="p-4 flex items-center gap-4 hover:bg-slate-50/70 transition-colors"
-              >
-                <div className="w-12 shrink-0">
-                  <BookCover book={book} size="sm" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-slate-800 truncate">
-                    {book.title}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {book.author} • NXB: {book.publisher} {book.isbn && `• ISBN: ${book.isbn}`}
-                  </p>
-                  <div className="flex items-center gap-3 mt-1.5">
-                    <span className="text-sm font-bold text-blue-600">
-                      {fmt(book.price)}
-                    </span>
-                    <span className="text-xs text-slate-400">
-                      Tồn kho:{" "}
-                      <strong className="text-slate-700">{book.stock} cuốn</strong>
-                    </span>
-                    <span className="text-xs text-amber-600 font-medium">
-                      ⭐ {book.rating} ({book.reviewCount} đánh giá)
-                    </span>
+            {orders.length === 0 ? (
+              <p className="text-center text-slate-400 py-12 text-sm">
+                Chưa có đơn hàng nào.
+              </p>
+            ) : (
+              orders.map((order) => {
+                const s = orderStatusInfo(order.orderStatus);
+                return (
+                  <div
+                    key={order.id}
+                    className="p-6 hover:bg-slate-50/60 transition-colors"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-mono text-xs font-bold text-slate-400">
+                            #{order.id}
+                          </span>
+                          <span className="text-xs text-slate-500">
+                            {order.createdAt}
+                          </span>
+                        </div>
+                        <p className="font-bold text-slate-800 text-base">
+                          {order.customerName}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {order.shippingAddress} • SĐT: {order.customerPhone}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <Badge label={s.label} color={s.color} bg={s.bg} />
+                        <span className="font-extrabold text-slate-800 text-base">
+                          {fmt(order.totalAmount)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-50 rounded-xl p-3.5 mb-4 text-xs text-slate-600 space-y-1.5">
+                      {order.items.map((i, idx) => (
+                        <div key={idx} className="flex justify-between">
+                          <span>
+                            {i.book.title} × <strong>{i.quantity}</strong>
+                          </span>
+                          <span>{fmt(i.unitPrice * i.quantity)}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
+                      <span className="text-xs text-slate-400">
+                        Thanh toán:{" "}
+                        <strong className="text-slate-600">
+                          {order.paymentMethod === "ONLINE"
+                            ? "Trực tuyến (VNPAY/MoMo)"
+                            : "Khi nhận hàng (COD)"}
+                        </strong>
+                      </span>
+
+                      <div className="flex items-center gap-2">
+                        {order.orderStatus === "PENDING" && (
+                          <>
+                            <Btn
+                              size="sm"
+                              color="#047857"
+                              onClick={() => handleUpdateStatus(order.id, "PROCESSING")}
+                            >
+                              <Check size={14} /> Xác nhận đóng gói
+                            </Btn>
+                            <Btn
+                              size="sm"
+                              variant="outline"
+                              color="#dc2626"
+                              onClick={() => handleUpdateStatus(order.id, "CANCELLED")}
+                            >
+                              <X size={14} /> Từ chối
+                            </Btn>
+                          </>
+                        )}
+
+                        {order.orderStatus === "PROCESSING" && (
+                          <Btn
+                            size="sm"
+                            color="#1d4ed8"
+                            onClick={() => handleUpdateStatus(order.id, "SHIPPED")}
+                          >
+                            <Truck size={14} /> Bàn giao shipper GHN
+                          </Btn>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-
-                <Badge
-                  label={book.status === "ACTIVE" ? "Đang bán" : "Hết hàng"}
-                  color={book.status === "ACTIVE" ? "#047857" : "#b91c1c"}
-                  bg={book.status === "ACTIVE" ? "#d1fae5" : "#fee2e2"}
-                />
-
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => handleOpenEditModal(book)}
-                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors cursor-pointer"
-                    title="Chỉnh sửa sách"
-                  >
-                    <Edit size={16} />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteProduct(book.id)}
-                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
-                    title="Ẩn sách khỏi gian hàng"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </div>
-            ))}
+                );
+              })
+            )}
           </div>
         </Card>
       )}
 
-      {/* Feedbacks Management Tab */}
+      {/* TAB 2: PRODUCTS */}
+      {tab === "products" && (
+        <Card className="overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="font-bold text-slate-800 text-base">
+                Kho sách của cửa hàng ({products.length} tựa sách)
+              </h2>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                value={productSearch}
+                onChange={(e) => setProductSearch(e.target.value)}
+                placeholder="Tìm tựa sách, tác giả..."
+                className="text-xs border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 focus:outline-none focus:border-emerald-500"
+              />
+              <Btn size="sm" color="#047857" onClick={handleOpenAddModal}>
+                <Plus size={14} /> Thêm sách mới
+              </Btn>
+            </div>
+          </div>
+
+          <div className="divide-y divide-slate-100">
+            {filteredProducts.length === 0 ? (
+              <p className="text-center text-slate-400 py-12 text-sm">
+                Không tìm thấy sách nào trong kho.
+              </p>
+            ) : (
+              filteredProducts.map((book) => (
+                <div
+                  key={book.id}
+                  className="p-5 flex items-center justify-between gap-4 hover:bg-slate-50/60 transition-colors"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-16 shrink-0 rounded-lg overflow-hidden border border-slate-200">
+                      <BookCover book={book} size="sm" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-800 text-sm">
+                        {book.title}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Tác giả: {book.author} • NXB: {book.publisher}
+                      </p>
+                      <div className="flex items-center gap-3 mt-1.5 text-xs">
+                        <span className="font-bold text-emerald-700">
+                          {fmt(book.price)}
+                        </span>
+                        <span className="text-slate-400">•</span>
+                        <span className="text-slate-600">
+                          Tồn kho: <strong>{book.stock} cuốn</strong>
+                        </span>
+                        <span className="text-slate-400">•</span>
+                        <span className="text-amber-600 font-semibold">
+                          ⭐ {book.rating} ({book.reviewCount} đánh giá)
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleOpenEditModal(book)}
+                      className="p-2 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                      title="Sửa thông tin"
+                    >
+                      <Edit size={16} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteProduct(Number(book.id))}
+                      className="p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                      title="Ẩn sách"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* TAB 3: FEEDBACKS */}
       {tab === "feedbacks" && (
         <Card className="overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-100">
@@ -507,10 +672,15 @@ export const ShopDashboardPage: React.FC = () => {
 
           <div className="divide-y divide-slate-100 p-6 space-y-4">
             {feedbacks.length === 0 ? (
-              <p className="text-center text-slate-400 py-8">Chưa có đánh giá nào từ khách hàng.</p>
+              <p className="text-center text-slate-400 py-8">
+                Chưa có đánh giá nào từ khách hàng.
+              </p>
             ) : (
               feedbacks.map((f) => (
-                <div key={f.orderId} className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                <div
+                  key={f.orderId}
+                  className="p-4 bg-slate-50 rounded-2xl border border-slate-200"
+                >
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-bold text-xs text-slate-800">
                       {f.feedback.customer || f.feedback.customerName} • Đơn #{f.orderId}
@@ -525,16 +695,23 @@ export const ShopDashboardPage: React.FC = () => {
                     <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200">
                       <div className="flex items-center justify-between text-[11px] text-emerald-800 font-semibold mb-1">
                         <span>Shop đã trả lời:</span>
-                        <span className="text-slate-400 font-normal">{f.feedback.shopRepliedAt}</span>
+                        <span className="text-slate-400 font-normal">
+                          {f.feedback.shopRepliedAt}
+                        </span>
                       </div>
-                      <p className="text-xs text-slate-700 italic">"{f.feedback.shopReply}"</p>
+                      <p className="text-xs text-slate-700 italic">
+                        "{f.feedback.shopReply}"
+                      </p>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 mt-2">
                       <input
                         value={replyTextMap[f.orderId] || ""}
                         onChange={(e) =>
-                          setReplyTextMap({ ...replyTextMap, [f.orderId]: e.target.value })
+                          setReplyTextMap({
+                            ...replyTextMap,
+                            [f.orderId]: e.target.value,
+                          })
                         }
                         placeholder="Nhập câu trả lời cảm ơn hoặc hỗ trợ khách hàng..."
                         className="flex-1 text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-emerald-500"
@@ -554,6 +731,183 @@ export const ShopDashboardPage: React.FC = () => {
             )}
           </div>
         </Card>
+      )}
+
+      {/* TAB 4: REAL-TIME CHAT / HỘP THƯ TƯ VẤN */}
+      {tab === "chat" && (
+        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col md:flex-row h-[600px] animate-in fade-in">
+          {/* Left Column: Conversation Threads */}
+          <div className="w-full md:w-80 border-r border-slate-200 flex flex-col bg-slate-50/50">
+            <div className="p-4 border-b border-slate-200 bg-white">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                  <MessageSquare size={16} className="text-emerald-600" />
+                  Hộp thư tư vấn ({chatThreads.length})
+                </h3>
+                <span className="text-[10px] text-emerald-600 flex items-center gap-1 font-medium bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                  {isRealTimeChatConnected ? (
+                    <>
+                      <Wifi size={10} /> Real-time
+                    </>
+                  ) : (
+                    <>
+                      <WifiOff size={10} /> Chờ kết nối
+                    </>
+                  )}
+                </span>
+              </div>
+              <div className="relative">
+                <Search
+                  size={14}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+                <input
+                  value={threadSearch}
+                  onChange={(e) => setThreadSearch(e.target.value)}
+                  placeholder="Tìm khách hàng hoặc tin nhắn..."
+                  className="w-full pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+              {filteredChatThreads.length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-400">
+                  Chưa có cuộc trò chuyện nào từ khách hàng.
+                </div>
+              ) : (
+                filteredChatThreads.map((t) => {
+                  const isSelected = selectedThread?.chatId === t.chatId;
+                  return (
+                    <button
+                      key={t.chatId}
+                      onClick={() => handleSelectThread(t)}
+                      className={`w-full p-4 text-left flex items-start gap-3 transition-colors cursor-pointer ${
+                        isSelected
+                          ? "bg-emerald-50/80 border-l-4 border-emerald-600"
+                          : "hover:bg-slate-100/60 bg-white"
+                      }`}
+                    >
+                      <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs">
+                        <UserIcon size={18} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-0.5">
+                          <p className="font-bold text-slate-800 text-xs truncate">
+                            {t.userName}
+                          </p>
+                          <span className="text-[10px] text-slate-400 shrink-0">
+                            {t.updatedAt}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 truncate leading-relaxed">
+                          {t.lastMessage || "Khách hàng bắt đầu cuộc trò chuyện"}
+                        </p>
+                      </div>
+                      {t.unreadCount > 0 && (
+                        <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center font-bold shrink-0">
+                          {t.unreadCount}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Right Column: Active Conversation Chat Window */}
+          <div className="flex-1 flex flex-col bg-white">
+            {selectedThread ? (
+              <>
+                {/* Chat Header */}
+                <div className="px-6 py-3.5 border-b border-slate-200 bg-white flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs shadow-2xs">
+                      <UserIcon size={16} />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-800 text-sm">
+                        {selectedThread.userName}
+                      </h4>
+                      <p className="text-[10px] text-emerald-600 flex items-center gap-1 font-medium mt-0.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        Đang kết nối trực tiếp
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Message Thread */}
+                <div className="flex-1 overflow-y-auto p-6 space-y-3 bg-slate-50/50">
+                  <div className="text-center my-2">
+                    <span className="px-3 py-1 bg-slate-200/60 rounded-full text-[10px] font-semibold text-slate-500">
+                      Hội thoại tư vấn sách với {selectedThread.userName}
+                    </span>
+                  </div>
+
+                  {threadMessages.map((m) => {
+                    // isFromCustomer === true nghĩa là tin từ Khách hàng (bên trái)
+                    // isFromCustomer === false nghĩa là tin từ Shop (bên phải)
+                    const isShop = !m.isFromCustomer;
+                    return (
+                      <div
+                        key={m.id}
+                        className={`flex flex-col ${isShop ? "items-end" : "items-start"}`}
+                      >
+                        <div
+                          className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-xs sm:text-sm shadow-xs ${
+                            isShop
+                              ? "bg-[#047857] text-white rounded-br-none"
+                              : "bg-white text-slate-800 border border-slate-200 rounded-bl-none"
+                          }`}
+                        >
+                          <p className="leading-relaxed whitespace-pre-wrap">{m.text}</p>
+                        </div>
+                        <span className="text-[10px] text-slate-400 mt-1 px-1 font-mono">
+                          {m.createdAt}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  <div ref={chatMessagesEndRef} />
+                </div>
+
+                {/* Reply Input Bar */}
+                <form
+                  onSubmit={handleSendShopReply}
+                  className="p-4 bg-white border-t border-slate-200 flex items-center gap-3"
+                >
+                  <input
+                    value={shopReplyInput}
+                    onChange={(e) => setShopReplyInput(e.target.value)}
+                    placeholder={`Nhập tin nhắn trả lời ${selectedThread.userName}...`}
+                    className="flex-1 text-xs sm:text-sm px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 bg-slate-50"
+                  />
+                  <Btn
+                    type="submit"
+                    disabled={!shopReplyInput.trim()}
+                    color="#047857"
+                    size="md"
+                    className="cursor-pointer"
+                  >
+                    <Send size={15} /> Gửi tin
+                  </Btn>
+                </form>
+              </>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400">
+                <MessageSquare size={44} className="text-slate-300 mb-3" />
+                <p className="text-sm font-semibold text-slate-600">
+                  Chưa chọn cuộc trò chuyện
+                </p>
+                <p className="text-xs text-slate-400 mt-1">
+                  Chọn một khách hàng từ danh sách bên trái để bắt đầu trả lời tư vấn.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Add / Edit Product Modal */}

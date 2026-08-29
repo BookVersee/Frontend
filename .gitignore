@@ -10,6 +10,9 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+# Environment files
+.env.local
+.env.*.local
 *.local
 
 # Editor directories and files
@@ -25,3 +28,4 @@ dist-ssr
 
 # External cloned reference repositories
 references/
+Backend/
