@@ -1,0 +1,229 @@
+export type Role = "customer" | "shop" | "admin" | "deliver";
+
+export type OrderStatus =
+  | "PENDING"
+  | "PAID"
+  | "PROCESSING"
+  | "SHIPPED"
+  | "DELIVERED"
+  | "CANCELLED"
+  | "RETURNED";
+
+export type PaymentMethod = "COD" | "ONLINE";
+
+export type DeliveryStatus =
+  | "PENDING"
+  | "TRANSIT"
+  | "OUT_FOR_DELIVERY"
+  | "DELIVERED"
+  | "RETURNED";
+
+export type ReturnStatus = "PENDING" | "APPROVED" | "REJECTED";
+
+export type DisputeLevel = "OPEN" | "PROCESSING" | "CLOSED";
+
+export type UserStatus = "ACTIVE" | "LOCKED";
+
+export interface Category {
+  id: string | number;
+  name: string;
+}
+
+export interface Book {
+  id: string | number;
+  shopId: string | number;
+  shopName: string;
+  categoryId: string | number;
+  title: string;
+  author: string;
+  publisher: string;
+  price: number;
+  stock: number;
+  rating: number;
+  reviewCount: number;
+  description: string;
+  coverColor: string;
+  coverColor2: string;
+  status: "ACTIVE" | "OUT_OF_STOCK" | "HIDDEN";
+  isbn?: string;
+  publishedYear?: number;
+}
+
+export interface CartItem {
+  book: Book;
+  quantity: number;
+}
+
+export interface OrderItem {
+  book: Book;
+  quantity: number;
+  unitPrice: number;
+}
+
+export interface OrderTracking {
+  number: string;
+  carrier: string;
+  status: DeliveryStatus;
+  estimated: string;
+  actualDelivered?: string;
+  note?: string;
+}
+
+export interface OrderFeedback {
+  id?: string | number;
+  orderId?: string | number;
+  bookId?: string | number;
+  rating: number;
+  content: string;
+  type: "SHOP" | "BOOK";
+  createdAt: string;
+  customer?: string;
+  customerName?: string;
+  shopReply?: string;
+  shopRepliedAt?: string;
+  isReported?: boolean;
+  reportReason?: string;
+}
+
+export interface ReturnRequest {
+  id?: string | number;
+  orderId?: string | number;
+  reason: string;
+  reasonType: string;
+  status: ReturnStatus;
+  refundAmount: number;
+  createdAt: string;
+  evidenceImage?: string;
+  shopResponse?: string;
+  disputeStatus?: DisputeLevel;
+  adminResolutionNote?: string;
+}
+
+export interface Order {
+  id: string | number;
+  customerId: string | number;
+  customerName: string;
+  customerPhone: string;
+  shopId: string | number;
+  shopName?: string;
+  items: OrderItem[];
+  totalAmount: number;
+  shippingFee: number;
+  orderStatus: OrderStatus;
+  paymentStatus: "UNPAID" | "PAID" | "REFUNDED";
+  paymentMethod: PaymentMethod;
+  shippingAddress: string;
+  createdAt: string;
+  updatedAt: string;
+  note?: string;
+  tracking?: OrderTracking;
+  feedback?: OrderFeedback;
+  returnRequest?: ReturnRequest;
+}
+
+export interface Transaction {
+  id: string | number;
+  orderId?: string | number;
+  userId?: string | number;
+  amount: number;
+  type: "ONLINE" | "COD" | "SHIPPING_FEE" | "REFUND" | "SHOP_REVENUE" | "TOPUP";
+  paidBy: string;
+  createdAt: string;
+  code?: string;
+  status?: "SUCCESS" | "PENDING" | "FAILED";
+}
+
+export interface DeliveryTask {
+  id: string | number;
+  orderId: string | number;
+  trackingNumber: string;
+  customer: string;
+  address: string;
+  phone: string;
+  status: DeliveryStatus;
+  items: number;
+  weight: string;
+  estimatedDate: string;
+  fee?: number;
+  shipperName?: string;
+}
+
+export interface User {
+  id: string | number;
+  name: string;
+  email: string;
+  role: Role;
+  shopId?: string | number;
+  shopName?: string;
+  phone?: string;
+  address?: string;
+  avatar?: string;
+  createdAt?: string;
+  status?: UserStatus;
+  shopStatus?: "PENDING" | "ACTIVE" | "REJECTED";
+  balance?: number;
+  authProvider?: "local" | "google";
+}
+
+export interface Shop {
+  id: string | number;
+  ownerId: string | number;
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  description?: string;
+  avatar?: string;
+  status: "PENDING" | "ACTIVE" | "REJECTED";
+  rating: number;
+  reviewCount: number;
+  bookCount: number;
+  joinedDate: string;
+}
+
+export interface AppNotification {
+  id: string | number;
+  userId?: string | number;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: string;
+  type: "ORDER" | "REFUND" | "CHAT" | "SYSTEM";
+  link?: string;
+}
+
+export interface ChatMessage {
+  id: string | number;
+  senderId: string | number;
+  receiverId?: string | number;
+  shopId?: string | number;
+  text: string;
+  createdAt: string;
+  isFromCustomer: boolean;
+  senderName?: string;
+  imageUrl?: string;
+}
+
+export interface AuthResponse {
+  token: string;
+  refreshToken?: string;
+  user: User;
+}
+
+export type CustomerPage =
+  | "home"
+  | "book"
+  | "cart"
+  | "checkout"
+  | "orders"
+  | "orderDetail"
+  | "profile"
+  | "shopProfile"
+  | "paymentResult";
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  message?: string;
+  errors?: string[];
+}
