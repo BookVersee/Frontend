@@ -40,7 +40,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-white border-b border-slate-200 px-5 py-3 flex items-center gap-4 shadow-xs">
+    <header className="sticky top-0 z-40 bg-[#1c1612] border-b border-[#2a211c] px-5 py-3 flex items-center gap-4 shadow-md">
       <div
         className="flex items-center gap-2.5 mr-2 cursor-pointer"
         onClick={() => setCustomerPage("home")}
@@ -52,10 +52,10 @@ export const Header: React.FC<HeaderProps> = ({
           <BookOpen size={16} className="text-white" />
         </div>
         <div className="flex flex-col">
-          <span className="font-bold text-slate-800 text-base leading-tight tracking-tight">
-            BookVerse
+          <span className="font-bold text-[#c8843a] text-base leading-tight tracking-tight font-serif">
+            Book<span className="font-sans text-xs text-[#b5a898] uppercase ml-0.5 tracking-wider font-semibold">Verse</span>
           </span>
-          <span className="text-[10px] text-slate-400 font-medium">Multi-vendor</span>
+          <span className="text-[9px] text-[#7a6a5a] uppercase font-bold tracking-wider">Multi-vendor</span>
         </div>
       </div>
 
@@ -71,14 +71,15 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               key={pg}
               onClick={() => setCustomerPage(pg)}
-              className="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer"
+              className="px-3.5 py-1.5 text-xs font-semibold transition-all cursor-pointer"
               style={
                 customerPage === pg
                   ? {
-                      backgroundColor: `${ROLE_COLORS[role]}15`,
-                      color: ROLE_COLORS[role],
+                      color: "#c8843a",
+                      borderBottom: "2px solid #c8843a",
+                      paddingBottom: 2,
                     }
-                  : { color: "#64748b" }
+                  : { color: "#b5a898" }
               }
             >
               {label}
@@ -95,7 +96,7 @@ export const Header: React.FC<HeaderProps> = ({
           {onOpenChat && (
             <button
               onClick={onOpenChat}
-              className="p-2.5 rounded-xl hover:bg-slate-100 transition-colors text-slate-600 cursor-pointer"
+              className="p-2.5 rounded-xl hover:bg-[#3d2b1a] transition-colors text-[#b5a898] hover:text-[#fdf9f5] cursor-pointer"
               title="Tin nhắn với Shop"
             >
               <MessageSquare size={18} />
@@ -104,12 +105,12 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             onClick={() => setCustomerPage("cart")}
-            className="relative p-2.5 rounded-xl hover:bg-slate-100 transition-colors text-slate-600 cursor-pointer"
+            className="relative p-2.5 rounded-xl hover:bg-[#3d2b1a] transition-colors text-[#b5a898] hover:text-[#fdf9f5] cursor-pointer"
             title="Giỏ hàng"
           >
             <ShoppingCart size={18} />
             {cartCount > 0 && (
-              <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white rounded-full text-[10px] flex items-center justify-center font-bold animate-pulse leading-none">
+              <span className="absolute top-1 right-1 w-4 h-4 bg-[#c8843a] text-white rounded-full text-[10px] flex items-center justify-center font-bold animate-pulse leading-none">
                 {cartCount}
               </span>
             )}
@@ -133,7 +134,7 @@ export const Header: React.FC<HeaderProps> = ({
             setRoleOpen((o) => !o);
             setUserMenuOpen(false);
           }}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-sm transition-all cursor-pointer"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-700 hover:border-slate-600 hover:bg-[#2a211c] text-sm transition-all cursor-pointer text-[#e8ddd0]"
         >
           <div
             className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[11px] font-bold shadow-2xs"
@@ -141,22 +142,22 @@ export const Header: React.FC<HeaderProps> = ({
           >
             {ROLE_LABELS[role][0]}
           </div>
-          <span className="text-xs font-semibold text-slate-700">
+          <span className="text-xs font-semibold">
             {ROLE_LABELS[role]}
           </span>
-          <ChevronDown size={13} className="text-slate-400" />
+          <ChevronDown size={13} className="text-[#7a6a5a]" />
         </button>
 
         {roleOpen && (
-          <div className="absolute right-0 top-full mt-1.5 w-48 bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100">
-            <div className="px-3 py-2 bg-slate-50 border-b border-slate-100">
-              <p className="text-[11px] font-medium text-slate-400">Chọn vai trò demo:</p>
+          <div className="absolute right-0 top-full mt-1.5 w-48 bg-[#2a211c] rounded-2xl border border-slate-700 shadow-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100">
+            <div className="px-3 py-2 bg-[#1c1612] border-b border-slate-700">
+              <p className="text-[11px] font-medium text-[#7a6a5a]">Chọn vai trò demo:</p>
             </div>
             {(Object.entries(ROLE_LABELS) as [Role, string][]).map(([r, label]) => (
               <button
                 key={r}
                 onClick={() => handleRoleChange(r)}
-                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs hover:bg-slate-50 transition-colors text-left cursor-pointer"
+                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs hover:bg-[#3d2b1a] transition-colors text-left cursor-pointer text-[#e8ddd0]"
               >
                 <div
                   className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-white text-[10px] font-bold"
@@ -166,7 +167,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
                 <span
                   className={role === r ? "font-bold" : "font-medium"}
-                  style={{ color: role === r ? ROLE_COLORS[r] : "#475569" }}
+                  style={{ color: role === r ? ROLE_COLORS[r] : "#b5a898" }}
                 >
                   {label}
                 </span>
@@ -220,9 +221,9 @@ export const Header: React.FC<HeaderProps> = ({
                     setCustomerPage("profile");
                     setUserMenuOpen(false);
                   }}
-                  className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-slate-700 hover:bg-slate-50 transition-colors text-left"
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-[#e8ddd0] hover:bg-[#3d2b1a] transition-colors text-left"
                 >
-                  <Settings size={14} className="text-slate-400" />
+                  <Settings size={14} className="text-[#7a6a5a]" />
                   Hồ sơ cá nhân
                 </button>
                 <button
@@ -230,7 +231,7 @@ export const Header: React.FC<HeaderProps> = ({
                     logout();
                     setUserMenuOpen(false);
                   }}
-                  className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-red-600 hover:bg-red-50 transition-colors text-left border-t border-slate-100"
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-red-400 hover:bg-red-950/20 hover:text-red-300 transition-colors text-left border-t border-[#3d2b1a]"
                 >
                   <LogOut size={14} />
                   Đăng xuất
@@ -241,7 +242,7 @@ export const Header: React.FC<HeaderProps> = ({
         ) : (
           <button
             onClick={onOpenAuth}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-xs font-medium transition-all shadow-sm cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#c8843a] text-white hover:bg-[#b66e30] text-xs font-medium transition-all shadow-sm cursor-pointer"
           >
             <UserIcon size={13} />
             <span>Đăng nhập</span>
@@ -251,3 +252,4 @@ export const Header: React.FC<HeaderProps> = ({
     </header>
   );
 };
+
