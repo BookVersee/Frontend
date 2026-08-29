@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Modal } from "../common/Modal";
 import { Btn } from "../common/Btn";
 import { GoogleIcon } from "../common/GoogleIcon";
@@ -11,7 +11,6 @@ import {
   UserPlus,
   ArrowLeft,
   Loader2,
-  PlusCircle,
   Eye,
   EyeOff,
   User as UserIcon,
@@ -25,30 +24,19 @@ import {
   CheckCircle2,
   RefreshCw,
   Clock,
+  Sparkles,
 } from "lucide-react";
+
+declare global {
+  interface Window {
+    google?: any;
+  }
+}
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
-
-const GOOGLE_SAMPLE_ACCOUNTS = [
-  {
-    name: "Tâm Nguyễn",
-    email: "tam.nguyen.dev@gmail.com",
-    avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop&q=80",
-  },
-  {
-    name: "An Nguyễn",
-    email: "an.nguyen.google@gmail.com",
-    avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120&auto=format&fit=crop&q=80",
-  },
-  {
-    name: "Độc Giả BookVerse",
-    email: "reader.bookverse@gmail.com",
-    avatar: "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=120&auto=format&fit=crop&q=80",
-  },
-];
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const { login, loginWithGoogle, register, forgotPassword, resetPassword } = useAuth();
@@ -86,10 +74,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   // Common & Google states
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [showGooglePicker, setShowGooglePicker] = useState(false);
-  const [customGoogleEmail, setCustomGoogleEmail] = useState("");
-  const [showCustomGoogleInput, setShowCustomGoogleInput] = useState(false);
   const [error, setError] = useState("");
+
+  // Refs to mount Google Identity Services buttons
+  const googleBtnLoginRef = useRef<HTMLDivElement>(null);
+  const googleBtnRegRef = useRef<HTMLDivElement>(null);
 
   // Countdown timer effect for Cooldown and OTP Expiry
   useEffect(() => {
@@ -108,6 +97,95 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     return () => clearInterval(timer);
   }, [forgotStep, otpExpiresIn]);
 
+  // Initialize Google Identity Services (GIS)
+  useEffect(() => {
+    if (!isOpen || tab === "forgot") return;
+
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      console.warn("VITE_GOOGLE_CLIENT_ID is not configured");
+      return;
+    }
+
+    const initGoogleGsi = () => {
+      if (window.google?.accounts?.id) {
+        window.google.accounts.id.initialize({
+          client_id: clientId,
+          callback: async (response: any) => {
+            if (response?.credential) {
+              setGoogleLoading(true);
+              setError("");
+              try {
+                await loginWithGoogle(response.credential);
+                onClose();
+              } catch (err: any) {
+                setError(err?.message || "Đăng nhập Google thất bại. Vui lòng thử lại.");
+              } finally {
+                setGoogleLoading(false);
+              }
+            }
+          },
+          auto_select: false,
+          cancel_on_tap_outside: true,
+        });
+
+        // Render official button in Login Tab
+        if (googleBtnLoginRef.current && tab === "login") {
+          googleBtnLoginRef.current.innerHTML = "";
+          window.google.accounts.id.renderButton(googleBtnLoginRef.current, {
+            type: "standard",
+            theme: "outline",
+            size: "large",
+            text: "continue_with",
+            shape: "pill",
+            width: 360,
+            logo_alignment: "left",
+          });
+        }
+
+        // Render official button in Register Tab
+        if (googleBtnRegRef.current && tab === "register") {
+          googleBtnRegRef.current.innerHTML = "";
+          window.google.accounts.id.renderButton(googleBtnRegRef.current, {
+            type: "standard",
+            theme: "outline",
+            size: "large",
+            text: "signup_with",
+            shape: "pill",
+            width: 440,
+            logo_alignment: "left",
+          });
+        }
+      }
+    };
+
+    if (window.google?.accounts?.id) {
+      initGoogleGsi();
+    } else {
+      const interval = setInterval(() => {
+        if (window.google?.accounts?.id) {
+          clearInterval(interval);
+          initGoogleGsi();
+        }
+      }, 200);
+      return () => clearInterval(interval);
+    }
+  }, [isOpen, tab]);
+
+  const handleTriggerGooglePrompt = () => {
+    if (window.google?.accounts?.id) {
+      setError("");
+      setGoogleLoading(true);
+      window.google.accounts.id.prompt((notification: any) => {
+        if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+          setGoogleLoading(false);
+        }
+      });
+    } else {
+      setError("Dịch vụ Google Identity chưa sẵn sàng. Vui lòng thử lại sau vài giây.");
+    }
+  };
+
   const formatTimer = (seconds: number) => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
@@ -116,8 +194,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   const resetFormState = () => {
     setError("");
-    setShowGooglePicker(false);
-    setShowCustomGoogleInput(false);
+    setGoogleLoading(false);
   };
 
   const resetForgotState = () => {
@@ -199,41 +276,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
-  const handleGoogleSignIn = async (accountData: {
-    email: string;
-    name?: string;
-    avatar?: string;
-  }) => {
-    setGoogleLoading(true);
-    setError("");
-    try {
-      await loginWithGoogle({
-        email: accountData.email,
-        name: accountData.name || accountData.email.split("@")[0],
-        avatar: accountData.avatar,
-        role: tab === "register" ? regRole : "customer",
-      });
-      setShowGooglePicker(false);
-      onClose();
-    } catch (err: any) {
-      setError(err?.message || "Đăng nhập Google không thành công. Vui lòng thử lại.");
-    } finally {
-      setGoogleLoading(false);
-    }
-  };
-
-  const handleCustomGoogleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customGoogleEmail || !customGoogleEmail.includes("@")) {
-      setError("Vui lòng nhập địa chỉ email Google hợp lệ");
-      return;
-    }
-    handleGoogleSignIn({
-      email: customGoogleEmail,
-      name: customGoogleEmail.split("@")[0],
-    });
-  };
-
   // --- FORGOT PASSWORD STEP HANDLERS ---
   const handleSendOtp = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -302,7 +344,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   };
 
   const getModalTitle = () => {
-    if (showGooglePicker) return "Đăng nhập bằng tài khoản Google";
     if (tab === "forgot") {
       if (forgotStep === "email") return "Quên mật khẩu";
       if (forgotStep === "otp") return "Xác thực mã OTP";
@@ -322,108 +363,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         onClose();
       }}
       title={getModalTitle()}
-      maxWidth={tab === "register" && !showGooglePicker ? "max-w-lg" : "max-w-md"}
+      maxWidth={tab === "register" ? "max-w-lg" : "max-w-md"}
     >
-      {showGooglePicker ? (
-        /* GOOGLE ACCOUNT SELECTOR DIALOG */
-        <div className="space-y-4 animate-in fade-in zoom-in-95 duration-150">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-            <button
-              type="button"
-              onClick={() => {
-                setShowGooglePicker(false);
-                setError("");
-              }}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
-            >
-              <ArrowLeft size={14} />
-              Quay lại
-            </button>
-            <div className="flex items-center gap-1.5">
-              <GoogleIcon size={16} />
-              <span className="text-xs font-bold text-slate-700">Google OAuth 2.0</span>
-            </div>
-          </div>
-
-          <p className="text-xs text-slate-500">
-            Chọn một tài khoản Google để tiếp tục với <strong className="text-slate-700">BookVerse</strong>
-          </p>
-
-          {error && (
-            <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-600 font-medium">
-              {error}
-            </div>
-          )}
-
-          <div className="space-y-2">
-            {GOOGLE_SAMPLE_ACCOUNTS.map((acc) => (
-              <button
-                key={acc.email}
-                type="button"
-                disabled={googleLoading}
-                onClick={() => handleGoogleSignIn(acc)}
-                className="w-full flex items-center gap-3 p-3 rounded-2xl border border-slate-200 hover:border-blue-500 hover:bg-blue-50/40 transition-all text-left group cursor-pointer disabled:opacity-60"
-              >
-                <img
-                  src={acc.avatar}
-                  alt={acc.name}
-                  className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0 group-hover:scale-105 transition-transform"
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-bold text-slate-800 group-hover:text-blue-600 transition-colors">
-                    {acc.name}
-                  </p>
-                  <p className="text-[11px] text-slate-400 truncate">{acc.email}</p>
-                </div>
-                {googleLoading ? (
-                  <Loader2 size={16} className="text-blue-600 animate-spin" />
-                ) : (
-                  <GoogleIcon size={18} className="shrink-0 opacity-70 group-hover:opacity-100" />
-                )}
-              </button>
-            ))}
-          </div>
-
-          {/* Custom Google Email input toggle */}
-          {!showCustomGoogleInput ? (
-            <button
-              type="button"
-              onClick={() => setShowCustomGoogleInput(true)}
-              className="w-full flex items-center justify-center gap-2 p-2.5 rounded-xl border border-dashed border-slate-300 text-xs font-semibold text-slate-600 hover:border-blue-400 hover:text-blue-600 hover:bg-slate-50 transition-all cursor-pointer"
-            >
-              <PlusCircle size={15} />
-              Sử dụng tài khoản Google khác
-            </button>
-          ) : (
-            <form onSubmit={handleCustomGoogleSubmit} className="space-y-2 pt-2 border-t border-slate-100">
-              <label className="block text-xs font-medium text-slate-600">
-                Nhập địa chỉ Gmail của bạn:
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="email"
-                  value={customGoogleEmail}
-                  onChange={(e) => setCustomGoogleEmail(e.target.value)}
-                  placeholder="your.email@gmail.com"
-                  className="flex-1 text-xs border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-blue-500 bg-slate-50"
-                  autoFocus
-                />
-                <button
-                  type="submit"
-                  disabled={googleLoading}
-                  className="px-3.5 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-1 cursor-pointer"
-                >
-                  {googleLoading ? <Loader2 size={13} className="animate-spin" /> : "Tiếp tục"}
-                </button>
-              </div>
-            </form>
-          )}
-
-          <p className="text-[11px] text-center text-slate-400 pt-2">
-            Đăng nhập an toàn & bảo mật qua giao thức Google OAuth 2.0
-          </p>
-        </div>
-      ) : tab === "forgot" ? (
+      {tab === "forgot" ? (
         /* FORGOT PASSWORD WORKFLOW (4 STEPS) */
         <div className="space-y-4 animate-in fade-in zoom-in-95 duration-150">
           {/* Header Bar */}
@@ -452,16 +394,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             </div>
           )}
 
+          {forgotSuccessMsg && forgotStep !== "success" && (
+            <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-700 font-medium flex items-center gap-2">
+              <Sparkles size={14} className="shrink-0 text-blue-500" />
+              <span>{forgotSuccessMsg}</span>
+            </div>
+          )}
+
           {forgotStep === "email" && (
             /* STEP 1: ENTER EMAIL */
             <form onSubmit={handleSendOtp} className="space-y-3.5">
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Nhập địa chỉ Email đã đăng ký tài khoản BookVerse của bạn. Hệ thống sẽ gửi một mã OTP 6 số để xác thực.
-              </p>
-
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Địa chỉ Email <span className="text-red-500">*</span>
+                  Địa chỉ Email đăng ký của bạn <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
@@ -471,50 +416,50 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     type="email"
                     value={forgotEmail}
                     onChange={(e) => setForgotEmail(e.target.value)}
-                    placeholder="name@example.com"
+                    placeholder="user@example.com"
                     required
                     autoFocus
                     className="w-full text-xs border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 focus:outline-none focus:border-blue-500 bg-slate-50"
                   />
                 </div>
+                <p className="text-[11px] text-slate-400 mt-1.5">
+                  Hệ thống sẽ gửi một mã OTP 6 số xác thực về địa chỉ email này.
+                </p>
               </div>
 
               <Btn type="submit" disabled={loading} className="w-full">
-                {loading ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
-                {loading ? "Đang gửi mã OTP..." : "Gửi mã OTP về Email"}
+                {loading ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" /> Đang gửi mã OTP...
+                  </>
+                ) : (
+                  <>
+                    <Mail size={15} /> Gửi mã OTP xác nhận
+                  </>
+                )}
               </Btn>
             </form>
           )}
 
           {forgotStep === "otp" && (
-            /* STEP 2: ENTER OTP CODE */
+            /* STEP 2: VERIFY OTP */
             <form onSubmit={handleVerifyOtp} className="space-y-3.5">
-              <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-100 text-xs text-blue-800">
-                <p className="font-semibold">{forgotSuccessMsg || "Mã OTP đã được gửi thành công!"}</p>
-                <p className="text-[11px] text-blue-600 mt-0.5">
-                  Vui lòng kiểm tra hộp thư đến (hoặc thư mục Spam) của <strong>{forgotEmail}</strong>.
-                </p>
-              </div>
-
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-xs font-medium text-slate-600">
-                    Nhập mã OTP 6 số <span className="text-red-500">*</span>
+                    Mã xác thực OTP (6 chữ số) <span className="text-red-500">*</span>
                   </label>
                   {otpExpiresIn > 0 ? (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">
-                      <Clock size={11} />
+                    <span className="text-[11px] font-mono font-semibold text-amber-600 flex items-center gap-1">
+                      <Clock size={12} />
                       Còn {formatTimer(otpExpiresIn)}
                     </span>
                   ) : (
-                    <span className="text-[11px] font-bold text-red-500">Mã đã hết hạn</span>
+                    <span className="text-[11px] font-semibold text-red-500">Mã đã hết hạn</span>
                   )}
                 </div>
 
                 <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                    <KeyRound size={15} />
-                  </div>
                   <input
                     type="text"
                     maxLength={6}
@@ -523,16 +468,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     placeholder="123456"
                     required
                     autoFocus
-                    className="w-full text-center tracking-[8px] font-mono text-base font-bold border border-slate-200 rounded-xl py-2.5 focus:outline-none focus:border-blue-500 bg-slate-50"
+                    className="w-full text-center text-lg font-mono tracking-widest font-bold border border-slate-200 rounded-xl py-2.5 focus:outline-none focus:border-blue-500 bg-slate-50"
                   />
                 </div>
+                <p className="text-[11px] text-slate-400 mt-1 text-center">
+                  Vui lòng kiểm tra hòm thư đến hoặc mục thư rác (Spam) của <strong>{forgotEmail}</strong>
+                </p>
               </div>
 
               <div className="flex items-center justify-between pt-1">
                 <button
                   type="button"
                   onClick={() => setForgotStep("email")}
-                  className="text-xs text-slate-500 hover:text-slate-800 underline cursor-pointer"
+                  className="text-xs text-slate-500 hover:text-slate-700 underline cursor-pointer"
                 >
                   Đổi email khác
                 </button>
@@ -541,15 +489,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   type="button"
                   disabled={cooldown > 0 || loading}
                   onClick={() => handleSendOtp()}
-                  className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-700 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  className="text-xs font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer"
                 >
                   <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
                   {cooldown > 0 ? `Gửi lại mã (${cooldown}s)` : "Gửi lại mã OTP"}
                 </button>
               </div>
 
-              <Btn type="submit" disabled={loading || !forgotOtp.trim()} className="w-full">
-                Tiếp tục thiết lập mật khẩu
+              <Btn type="submit" disabled={!forgotOtp.trim()} className="w-full">
+                <ShieldCheck size={15} /> Xác nhận mã OTP
               </Btn>
             </form>
           )}
@@ -557,10 +505,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           {forgotStep === "new_password" && (
             /* STEP 3: SET NEW PASSWORD */
             <form onSubmit={handleResetPassword} className="space-y-3.5">
-              <p className="text-xs text-slate-600">
-                Nhập mật khẩu mới an toàn cho tài khoản <strong>{forgotEmail}</strong>.
-              </p>
-
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">
                   Mật khẩu mới <span className="text-red-500">*</span>
@@ -615,8 +559,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               </div>
 
               <Btn type="submit" disabled={loading} className="w-full">
-                {loading ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
-                {loading ? "Đang cập nhật..." : "Xác nhận đổi mật khẩu"}
+                {loading ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" /> Đang cập nhật...
+                  </>
+                ) : (
+                  <>
+                    <Check size={15} /> Lưu mật khẩu mới
+                  </>
+                )}
               </Btn>
             </form>
           )}
@@ -630,7 +581,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               <div>
                 <h3 className="text-sm font-bold text-slate-800">Đặt lại mật khẩu thành công!</h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  Mật khẩu mới đã được cập nhật an toàn. Bây giờ bạn có thể đăng nhập vào tài khoản BookVerse của mình.
+                  Mật khẩu mới đã được cập nhật an toàn trên hệ thống. Bây giờ bạn có thể đăng nhập vào tài khoản BookVerse của mình.
                 </p>
               </div>
 
@@ -766,24 +717,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 </div>
                 <div className="relative flex justify-center text-[10px] uppercase tracking-wider">
                   <span className="bg-white px-2.5 text-slate-400 font-semibold">
-                    Hoặc đăng nhập bằng
+                    Hoặc tiếp tục với
                   </span>
                 </div>
               </div>
 
-              {/* GOOGLE SIGN-IN BUTTON */}
-              <button
-                type="button"
-                onClick={() => {
-                  setError("");
-                  setShowGooglePicker(true);
-                }}
-                disabled={loading || googleLoading}
-                className="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-xl border border-slate-300 hover:border-slate-400 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-xs active:scale-[0.99] cursor-pointer disabled:opacity-60"
-              >
-                <GoogleIcon size={18} />
-                <span>Tiếp tục với Google</span>
-              </button>
+              {/* OFFICIAL GOOGLE SIGN-IN BUTTON CONTAINER */}
+              <div className="flex flex-col items-center justify-center min-h-[44px]">
+                <div ref={googleBtnLoginRef} className="w-full flex justify-center" />
+                {googleLoading && (
+                  <div className="flex items-center gap-2 text-xs text-blue-600 font-medium mt-2">
+                    <Loader2 size={14} className="animate-spin" />
+                    <span>Đang xác thực tài khoản Google với máy chủ...</span>
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             /* TAB REGISTER */
@@ -985,19 +933,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 </div>
               </div>
 
-              {/* GOOGLE SIGN-IN BUTTON */}
-              <button
-                type="button"
-                onClick={() => {
-                  setError("");
-                  setShowGooglePicker(true);
-                }}
-                disabled={loading || googleLoading}
-                className="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-xl border border-slate-300 hover:border-slate-400 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-xs active:scale-[0.99] cursor-pointer disabled:opacity-60"
-              >
-                <GoogleIcon size={18} />
-                <span>Đăng ký nhanh bằng Google</span>
-              </button>
+              {/* OFFICIAL GOOGLE SIGN-IN BUTTON CONTAINER */}
+              <div className="flex flex-col items-center justify-center min-h-[44px]">
+                <div ref={googleBtnRegRef} className="w-full flex justify-center" />
+                {googleLoading && (
+                  <div className="flex items-center gap-2 text-xs text-blue-600 font-medium mt-2">
+                    <Loader2 size={14} className="animate-spin" />
+                    <span>Đang liên kết tài khoản Google với máy chủ...</span>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </>

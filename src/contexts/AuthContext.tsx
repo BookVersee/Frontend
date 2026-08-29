@@ -9,12 +9,13 @@ interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   login: (email: string, password?: string) => Promise<void>;
-  loginWithGoogle: (googleData?: {
-    email: string;
+  loginWithGoogle: (idTokenOrData?: string | {
+    email?: string;
     name?: string;
     avatar?: string;
     role?: Role;
     googleId?: string;
+    idToken?: string;
   }) => Promise<void>;
   register: (
     data: RegisterData | string,
@@ -58,14 +59,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setToken(res.token);
   };
 
-  const loginWithGoogle = async (googleData?: {
-    email: string;
+  const loginWithGoogle = async (idTokenOrData?: string | {
+    email?: string;
     name?: string;
     avatar?: string;
     role?: Role;
     googleId?: string;
+    idToken?: string;
   }) => {
-    const res = await authService.loginWithGoogle(googleData);
+    const res = await authService.loginWithGoogle(idTokenOrData);
     setUser(res.user);
     setRole(res.user.role);
     setToken(res.token);
