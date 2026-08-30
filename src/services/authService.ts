@@ -30,6 +30,33 @@ export function decodeGoogleIdToken(token: string): { email?: string; name?: str
   }
 }
 
+export const SEED_ACCOUNTS: Record<Role, { username: string; email: string; password: string; name: string }> = {
+  customer: {
+    username: "customer1",
+    email: "nguyenngocanh066206@gmail.com",
+    password: "Password123!",
+    name: "Nguyễn Văn An",
+  },
+  shop: {
+    username: "shop_nhanam",
+    email: "nhanam@bookverse.com",
+    password: "Password123!",
+    name: "Nhã Nam Books Official",
+  },
+  admin: {
+    username: "admin",
+    email: "admin@bookverse.com",
+    password: "Password123!",
+    name: "Hệ Thống Quản Trị Viên",
+  },
+  deliver: {
+    username: "shipper_ghn1",
+    email: "shipper.an@ghn.vn",
+    password: "Password123!",
+    name: "Shipper GHN An",
+  },
+};
+
 export const authService = {
   async login(usernameOrEmail: string, password?: string): Promise<AuthResponse> {
     try {
@@ -503,17 +530,26 @@ export const authService = {
     removeStoredToken();
   },
 
-  switchRole(role: Role): User {
-    const matchedUser = DEMO_USERS.find((u) => u.role === role) || {
-      id: Date.now(),
-      name: `User ${role}`,
-      email: `${role}@bookverse.com`,
-      role,
-      status: "ACTIVE",
-    };
-    const mockToken = `mock-jwt-token-${matchedUser.id}-${role}`;
-    setStoredToken(mockToken);
-    setStoredUser(matchedUser);
-    return matchedUser;
+  async switchRole(role: Role): Promise<AuthResponse> {
+    const creds = SEED_ACCOUNTS[role] || SEED_ACCOUNTS.customer;
+    try {
+      const res = await this.login(creds.username, creds.password);
+      return res;
+    } catch (error) {
+      console.warn(`[authService] switchRole to ${role} failed against API:`, error);
+      const fallbackUser: User = {
+        id: Date.now(),
+        name: creds.name,
+        email: creds.email,
+        role,
+        status: "ACTIVE",
+      };
+      const fallbackToken = `mock-jwt-token-${role}`;
+      setStoredToken(fallbackToken);
+      setStoredUser(fallbackUser);
+      return { token: fallbackToken, user: fallbackUser };
+    }
   },
 };
+
+

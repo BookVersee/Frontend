@@ -33,8 +33,8 @@ export const Header: React.FC<HeaderProps> = ({
   const [roleOpen, setRoleOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
-  const handleRoleChange = (newRole: Role) => {
-    switchRole(newRole);
+  const handleRoleChange = async (newRole: Role) => {
+    await switchRole(newRole);
     setRoleOpen(false);
     setCustomerPage("home");
   };

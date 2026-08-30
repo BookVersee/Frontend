@@ -29,7 +29,7 @@ interface AuthContextType {
   verifyResetOtp: (email: string, otpCode: string) => Promise<string>;
   resetPassword: (email: string, otpCode: string, newPassword: string) => Promise<string>;
   logout: () => void;
-  switchRole: (role: Role) => void;
+  switchRole: (role: Role) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -107,11 +107,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setRole("customer");
   };
 
-  const switchRole = (newRole: Role) => {
-    const updatedUser = authService.switchRole(newRole);
-    setUser(updatedUser);
-    setRole(newRole);
-    setToken(getStoredToken());
+  const switchRole = async (newRole: Role) => {
+    const res = await authService.switchRole(newRole);
+    setUser(res.user);
+    setRole(res.user.role);
+    setToken(res.token);
   };
 
   return (
