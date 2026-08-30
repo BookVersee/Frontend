@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Book } from "../../types";
 
 interface BookCoverProps {
@@ -26,9 +26,12 @@ export const BookCover: React.FC<BookCoverProps> = ({
 }) => {
   const { w, h } = DIMS[size];
   const fs = FONT_SIZES[size];
+  const [imgError, setImgError] = useState(false);
   
   // Use coverColor if defined, otherwise default to a book-like brown/blue theme color
   const color = book.coverColor || "#3d2b1a";
+
+  const hasValidImage = !!book.imageUrl && !imgError;
 
   return (
     <div
@@ -41,56 +44,80 @@ export const BookCover: React.FC<BookCoverProps> = ({
         boxShadow: "3px 4px 12px rgba(0,0,0,0.25), inset -2px 0 8px rgba(0,0,0,0.15)",
       }}
     >
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: "linear-gradient(135deg, rgba(255,255,255,0.12) 0%, transparent 50%, rgba(0,0,0,0.22) 100%)",
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          left: 8,
-          right: 8,
-          bottom: 12,
-          top: 12,
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "space-between",
-        }}
-      >
-        <div style={{ width: "60%", height: 2, backgroundColor: "rgba(255,255,255,0.4)", borderRadius: 1 }} />
-        <div>
+      {hasValidImage ? (
+        <>
+          <img
+            src={book.imageUrl}
+            alt={book.title}
+            onError={() => setImgError(true)}
+            className="w-full h-full object-cover"
+          />
+          {/* Subtle book sheen overlay */}
           <div
             style={{
-              fontSize: fs,
-              fontFamily: "Playfair Display, serif",
-              color: "rgba(255,255,255,0.95)",
-              fontWeight: 700,
-              lineHeight: 1.3,
-              marginBottom: 4,
+              position: "absolute",
+              inset: 0,
+              background: "linear-gradient(90deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0) 20%, rgba(0,0,0,0.15) 100%)",
+              pointerEvents: "none",
             }}
-            className="line-clamp-3"
-          >
-            {book.title}
-          </div>
+          />
+        </>
+      ) : (
+        <>
           <div
             style={{
-              fontSize: fs - 1,
-              color: "rgba(255,255,255,0.65)",
-              letterSpacing: "0.05em",
-              textTransform: "uppercase",
-              fontFamily: "Outfit, sans-serif",
+              position: "absolute",
+              inset: 0,
+              background: "linear-gradient(135deg, rgba(255,255,255,0.12) 0%, transparent 50%, rgba(0,0,0,0.22) 100%)",
             }}
-            className="truncate"
+          />
+          <div
+            style={{
+              position: "absolute",
+              left: 8,
+              right: 8,
+              bottom: 12,
+              top: 12,
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "space-between",
+            }}
           >
-            {book.author}
+            <div style={{ width: "60%", height: 2, backgroundColor: "rgba(255,255,255,0.4)", borderRadius: 1 }} />
+            <div>
+              <div
+                style={{
+                  fontSize: fs,
+                  fontFamily: "Playfair Display, serif",
+                  color: "rgba(255,255,255,0.95)",
+                  fontWeight: 700,
+                  lineHeight: 1.3,
+                  marginBottom: 4,
+                }}
+                className="line-clamp-3"
+              >
+                {book.title}
+              </div>
+              <div
+                style={{
+                  fontSize: fs - 1,
+                  color: "rgba(255,255,255,0.65)",
+                  letterSpacing: "0.05em",
+                  textTransform: "uppercase",
+                  fontFamily: "Outfit, sans-serif",
+                }}
+                className="truncate"
+              >
+                {book.author}
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
+      {/* Book spine ridge */}
       <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 5, background: "rgba(0,0,0,0.2)" }} />
     </div>
   );
 };
+
 

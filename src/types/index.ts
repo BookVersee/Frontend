@@ -44,6 +44,7 @@ export interface Book {
   description: string;
   coverColor: string;
   coverColor2: string;
+  imageUrl?: string;
   status: "ACTIVE" | "OUT_OF_STOCK" | "HIDDEN";
   isbn?: string;
   publishedYear?: number;
@@ -226,4 +227,11 @@ export interface ApiResponse<T> {
   data: T;
   message?: string;
   errors?: string[];
+}
+
+export interface UploadImageResponse {
+  url: string;
+  public_id: string;
+  file_name: string;
+  size: number;
 }
