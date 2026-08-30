@@ -32,7 +32,7 @@ export const shopService = {
   // 2. Lấy danh sách đơn hàng của Shop
   async getShopOrders(shopId?: string | number): Promise<Order[]> {
     try {
-      const res = await apiClient.get<ApiResponse<any[]>>("/shop/orders");
+      const res = await apiClient.get<ApiResponse<any[]>>("/orders/GetUserOrders");
       const orders = res.data.data || [];
       return orders.map((o: any) => ({
         id: o.id,
@@ -157,6 +157,7 @@ export const shopService = {
         description: b.description || "",
         coverColor: "#ffffff",
         coverColor2: "#ffffff",
+        imageUrl: b.imageUrl,
         status: b.status === "ACTIVE" ? "ACTIVE" : b.status === "EMPTY" ? "OUT_OF_STOCK" : "HIDDEN",
         isbn: b.isbn,
         publishedYear: b.publishedYear,
@@ -180,21 +181,24 @@ export const shopService = {
         stockQuantity: product.stock,
         categoryId: product.categoryId,
         description: product.description || "",
-        coverImage: "",
+        imageUrl: product.imageUrl || "",
       });
       const b = res.data.data;
       return {
         ...product,
         id: b.id,
       };
-    } catch (error) {
-      console.warn("addProduct API error, falling back to mock:", error);
-      const newBook: Book = {
-        ...product,
-        id: Date.now() as any,
-      };
-      INITIAL_BOOKS.unshift(newBook);
-      return newBook;
+    } catch (error: any) {
+      console.warn("addProduct API error:", error);
+      const errorMsg =
+        error?.response?.data?.errors?.detail ||
+        (typeof error?.response?.data?.errors === "object"
+          ? Object.values(error.response.data.errors).flat()[0]
+          : null) ||
+        error?.response?.data?.message ||
+        error?.message ||
+        "Không thể thêm sách vào gian hàng. Vui lòng kiểm tra lại thông tin.";
+      throw new Error(String(errorMsg));
     }
   },
 
@@ -203,15 +207,13 @@ export const shopService = {
     try {
       const res = await apiClient.post<ApiResponse<any>>("/shop/UpdateShopBook", {
         title: product.title,
-        author: product.author,
-        publisher: product.publisher,
-        isbn: product.isbn,
-        publishedYear: product.publishedYear,
         price: product.price,
         stockQuantity: product.stock,
         categoryId: product.categoryId,
         description: product.description,
-        coverImage: "",
+        imageUrl: product.imageUrl,
+        publishedYear: product.publishedYear,
+        status: product.status,
       }, {
         params: { bookId: id }
       });
@@ -220,14 +222,17 @@ export const shopService = {
         ...product,
         id: b?.id || id,
       } as Book;
-    } catch (error) {
-      console.warn("updateProduct API error, falling back to mock:", error);
-      const idx = INITIAL_BOOKS.findIndex((b) => String(b.id) === String(id));
-      if (idx !== -1) {
-        INITIAL_BOOKS[idx] = { ...INITIAL_BOOKS[idx], ...product };
-        return INITIAL_BOOKS[idx];
-      }
-      throw new Error("Không tìm thấy sách");
+    } catch (error: any) {
+      console.warn("updateProduct API error:", error);
+      const errorMsg =
+        error?.response?.data?.errors?.detail ||
+        (typeof error?.response?.data?.errors === "object"
+          ? Object.values(error.response.data.errors).flat()[0]
+          : null) ||
+        error?.response?.data?.message ||
+        error?.message ||
+        "Không thể cập nhật thông tin sách.";
+      throw new Error(String(errorMsg));
     }
   },
 
@@ -238,13 +243,14 @@ export const shopService = {
         params: { bookId: id }
       });
       return true;
-    } catch (error) {
-      console.warn("deleteProduct API error, falling back to mock:", error);
-      const idx = INITIAL_BOOKS.findIndex((b) => String(b.id) === String(id));
-      if (idx !== -1) {
-        INITIAL_BOOKS[idx].status = "HIDDEN";
-      }
-      return true;
+    } catch (error: any) {
+      console.warn("deleteProduct API error:", error);
+      const errorMsg =
+        error?.response?.data?.errors?.detail ||
+        error?.response?.data?.message ||
+        error?.message ||
+        "Không thể xóa sách khỏi gian hàng.";
+      throw new Error(String(errorMsg));
     }
   },
 

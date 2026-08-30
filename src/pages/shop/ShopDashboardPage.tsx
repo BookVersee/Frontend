@@ -20,11 +20,17 @@ import {
   Wifi,
   WifiOff,
   Search,
+  Upload,
+  Image as ImageIcon,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
-import { Order, Book, OrderStatus, OrderFeedback, ChatMessage } from "../../types";
+import { Order, Book, Category, OrderStatus, OrderFeedback, ChatMessage } from "../../types";
 import { shopService } from "../../services/shopService";
+import { bookService } from "../../services/bookService";
 import { chatService, ChatThread } from "../../services/chatService";
 import { signalRService } from "../../services/signalRService";
+import { uploadService } from "../../services/uploadService";
 import { useAuth } from "../../contexts/AuthContext";
 import { orderStatusInfo } from "../../utils/status";
 import { fmt } from "../../utils/format";
@@ -43,6 +49,7 @@ export const ShopDashboardPage: React.FC = () => {
   const [tab, setTab] = useState<"orders" | "products" | "feedbacks" | "revenue" | "chat">("orders");
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Book[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [feedbacks, setFeedbacks] = useState<{ orderId: number; feedback: OrderFeedback }[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -51,7 +58,8 @@ export const ShopDashboardPage: React.FC = () => {
 
   // Add & Edit Product Modal State
   const [showProductModal, setShowProductModal] = useState(false);
-  const [editingBookId, setEditingBookId] = useState<number | null>(null);
+  const [editingBookId, setEditingBookId] = useState<string | number | null>(null);
+  const [categoryId, setCategoryId] = useState<string | number>("");
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
   const [publisher, setPublisher] = useState("NXB Trẻ");
@@ -61,6 +69,12 @@ export const ShopDashboardPage: React.FC = () => {
   const [isbn, setIsbn] = useState("");
   const [color1, setColor1] = useState("#1d4ed8");
   const [color2, setColor2] = useState("#3b82f6");
+  const [imageUrl, setImageUrl] = useState("");
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Reply Feedback State
   const [replyTextMap, setReplyTextMap] = useState<Record<number, string>>({});
@@ -83,16 +97,21 @@ export const ShopDashboardPage: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [ordersData, productsData, feedbacksData, threadsData] = await Promise.all([
+      const [ordersData, productsData, feedbacksData, threadsData, categoriesData] = await Promise.all([
         shopService.getShopOrders(shopId),
         shopService.getShopProducts(shopId),
         shopService.getShopFeedbacks(shopId),
         chatService.getShopConversations(shopId),
+        bookService.getCategories(),
       ]);
       setOrders(ordersData);
       setProducts(productsData);
       setFeedbacks(feedbacksData);
       setChatThreads(threadsData);
+      setCategories(categoriesData);
+      if (categoriesData.length > 0 && !categoryId) {
+        setCategoryId(categoriesData[0].id);
+      }
       if (threadsData.length > 0 && !selectedThread) {
         setSelectedThread(threadsData[0]);
       }
@@ -259,13 +278,17 @@ export const ShopDashboardPage: React.FC = () => {
     setStock("50");
     setDesc("");
     setIsbn("");
+    setCategoryId(categories[0]?.id || "11111111-0000-0000-0000-000000000001");
     setColor1("#1d4ed8");
     setColor2("#3b82f6");
+    setImageUrl("");
+    setUploadError(null);
+    setFormError(null);
     setShowProductModal(true);
   };
 
   const handleOpenEditModal = (book: Book) => {
-    setEditingBookId(Number(book.id));
+    setEditingBookId(book.id);
     setTitle(book.title);
     setAuthor(book.author);
     setPublisher(book.publisher);
@@ -273,53 +296,99 @@ export const ShopDashboardPage: React.FC = () => {
     setStock(String(book.stock));
     setDesc(book.description);
     setIsbn(book.isbn || "");
+    setCategoryId(book.categoryId || categories[0]?.id || "11111111-0000-0000-0000-000000000001");
     setColor1(book.coverColor);
     setColor2(book.coverColor2);
+    setImageUrl(book.imageUrl || "");
+    setUploadError(null);
+    setFormError(null);
     setShowProductModal(true);
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingImage(true);
+    setUploadError(null);
+    try {
+      const res = await uploadService.uploadImage(file, "bookverse/books");
+      setImageUrl(res.url);
+    } catch (err: any) {
+      setUploadError(err.message || "Tải ảnh lên thất bại. Vui lòng thử lại.");
+    } finally {
+      setIsUploadingImage(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setImageUrl("");
+    setUploadError(null);
   };
 
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !author.trim()) return;
-
-    if (editingBookId) {
-      const updated = await shopService.updateProduct(editingBookId, {
-        title,
-        author,
-        publisher,
-        price: Number(price) || 50000,
-        stock: Number(stock) || 10,
-        description: desc,
-        isbn,
-        coverColor: color1,
-        coverColor2: color2,
-      });
-      setProducts((prev) => prev.map((b) => (b.id === editingBookId ? updated : b)));
-    } else {
-      const created = await shopService.addProduct({
-        shopId,
-        shopName,
-        categoryId: 1,
-        title,
-        author,
-        publisher,
-        price: Number(price) || 50000,
-        stock: Number(stock) || 10,
-        rating: 5.0,
-        reviewCount: 0,
-        description: desc || "Tác phẩm mới cập nhật tại nhà sách.",
-        coverColor: color1,
-        coverColor2: color2,
-        status: "ACTIVE",
-        isbn,
-      });
-      setProducts((prev) => [created, ...prev]);
+    if (!title.trim() || !author.trim()) {
+      setFormError("Vui lòng điền đầy đủ Tựa đề sách và Tác giả.");
+      return;
     }
 
-    setShowProductModal(false);
+    const selectedCategoryGuid = categoryId || categories[0]?.id || "11111111-0000-0000-0000-000000000001";
+
+    setIsSubmitting(true);
+    setFormError(null);
+
+    try {
+      if (editingBookId) {
+        const updated = await shopService.updateProduct(editingBookId, {
+          title,
+          author,
+          publisher,
+          price: Number(price) || 0,
+          stock: Number(stock) || 0,
+          categoryId: selectedCategoryGuid,
+          description: desc,
+          isbn,
+          coverColor: color1,
+          coverColor2: color2,
+          imageUrl: imageUrl.trim() || undefined,
+        });
+        setProducts((prev) => prev.map((b) => (b.id === editingBookId ? updated : b)));
+      } else {
+        const created = await shopService.addProduct({
+          shopId,
+          shopName,
+          categoryId: selectedCategoryGuid,
+          title,
+          author,
+          publisher,
+          price: Number(price) || 0,
+          stock: Number(stock) || 0,
+          rating: 5.0,
+          reviewCount: 0,
+          description: desc || "Tác phẩm mới cập nhật tại nhà sách.",
+          coverColor: color1,
+          coverColor2: color2,
+          imageUrl: imageUrl.trim() || undefined,
+          status: "ACTIVE",
+          isbn,
+        });
+        setProducts((prev) => [created, ...prev]);
+      }
+
+      setShowProductModal(false);
+    } catch (err: any) {
+      console.error("Lỗi khi lưu sách:", err);
+      setFormError(err.message || "Không thể lưu thông tin sách. Vui lòng thử lại.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleDeleteProduct = async (id: number) => {
+  const handleDeleteProduct = async (id: string | number) => {
     if (confirm("Bạn có chắc chắn muốn ẩn đầu sách này khỏi gian hàng?")) {
       await shopService.deleteProduct(id);
       setProducts((prev) => prev.filter((b) => b.id !== id));
@@ -918,6 +987,129 @@ export const ShopDashboardPage: React.FC = () => {
         maxWidth="max-w-lg"
       >
         <form onSubmit={handleSaveProduct} className="space-y-4">
+          {formError && (
+            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2.5 text-rose-700 animate-in fade-in zoom-in-95 duration-150">
+              <AlertCircle size={18} className="shrink-0 mt-0.5 text-rose-600" />
+              <div className="text-xs font-medium leading-relaxed">
+                <p className="font-semibold text-rose-800">Không thể lưu thông tin sách</p>
+                <p className="mt-0.5">{formError}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Image Upload Area */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center justify-between">
+              <span>Hình ảnh bìa sách (Cloudinary CDN)</span>
+              {imageUrl && (
+                <span className="text-[11px] text-emerald-600 font-medium flex items-center gap-1">
+                  <CheckCircle size={12} /> Đã tải lên Cloud
+                </span>
+              )}
+            </label>
+
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              accept=".jpg,.jpeg,.png,.webp,.gif"
+              className="hidden"
+            />
+
+            {imageUrl ? (
+              <div className="relative p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center gap-4 group">
+                <div className="w-16 h-22 shrink-0 rounded-lg overflow-hidden border border-slate-200 shadow-xs bg-white relative">
+                  <img
+                    src={imageUrl}
+                    alt="Preview bìa sách"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-slate-800 truncate">
+                    Ảnh bìa đã chọn
+                  </p>
+                  <p className="text-[11px] text-slate-400 truncate mt-0.5" title={imageUrl}>
+                    {imageUrl}
+                  </p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isUploadingImage || isSubmitting}
+                      className="px-2.5 py-1 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
+                    >
+                      Đổi ảnh khác
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRemoveImage}
+                      disabled={isUploadingImage || isSubmitting}
+                      className="px-2.5 py-1 text-xs font-medium text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                    >
+                      <Trash2 size={12} /> Xóa ảnh
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div
+                onClick={() => !isUploadingImage && !isSubmitting && fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-all ${
+                  isUploadingImage || isSubmitting
+                    ? "bg-slate-50 border-slate-300 cursor-not-allowed"
+                    : "border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/30"
+                }`}
+              >
+                {isUploadingImage ? (
+                  <div className="flex flex-col items-center justify-center py-2">
+                    <Loader2 size={24} className="text-emerald-600 animate-spin mb-1.5" />
+                    <p className="text-xs font-medium text-emerald-700">
+                      Đang tải ảnh lên Cloudinary...
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Vui lòng chờ trong giây lát</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-2">
+                    <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-1.5 shadow-xs">
+                      <Upload size={18} />
+                    </div>
+                    <p className="text-xs font-semibold text-slate-700">
+                      Nhấn để tải lên ảnh bìa sách
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Hỗ trợ JPG, PNG, WEBP, GIF (Tối đa 10MB)
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {uploadError && (
+              <p className="text-xs text-rose-600 mt-1.5 flex items-center gap-1">
+                <X size={13} /> {uploadError}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">
+              Thể loại sách *
+            </label>
+            <select
+              required
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+              className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-emerald-500 bg-slate-50 font-medium text-slate-800"
+            >
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1">
               Tựa đề sách *
@@ -997,7 +1189,7 @@ export const ShopDashboardPage: React.FC = () => {
 
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1">
-              Màu gradient bìa sách (Demo Cover)
+              Màu dự phòng bìa sách (Fallback Gradient)
             </label>
             <div className="flex items-center gap-3">
               <input
@@ -1013,7 +1205,7 @@ export const ShopDashboardPage: React.FC = () => {
                 className="w-10 h-10 rounded-lg cursor-pointer border border-slate-200 p-0.5"
               />
               <span className="text-xs text-slate-400">
-                Chọn 2 dải màu cho bìa sách
+                Hiển thị khi ảnh bìa chưa có hoặc tải chậm
               </span>
             </div>
           </div>
@@ -1031,8 +1223,22 @@ export const ShopDashboardPage: React.FC = () => {
             />
           </div>
 
-          <Btn type="submit" color="#047857" size="md" className="w-full mt-2">
-            {editingBookId ? "Lưu thay đổi sách" : "Thêm sách vào gian hàng"}
+          <Btn
+            type="submit"
+            color="#047857"
+            size="md"
+            className="w-full mt-2"
+            disabled={isUploadingImage || isSubmitting}
+          >
+            {isSubmitting ? (
+              <span className="flex items-center justify-center gap-2">
+                <Loader2 size={16} className="animate-spin" /> Đang lưu thông tin...
+              </span>
+            ) : editingBookId ? (
+              "Lưu thay đổi sách"
+            ) : (
+              "Thêm sách vào gian hàng"
+            )}
           </Btn>
         </form>
       </Modal>
