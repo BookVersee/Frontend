@@ -67,6 +67,7 @@ export const ShopDashboardPage: React.FC = () => {
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
   const [publisher, setPublisher] = useState("NXB Trẻ");
+  const [publishedYear, setPublishedYear] = useState(String(new Date().getFullYear()));
   const [price, setPrice] = useState("95000");
   const [stock, setStock] = useState("50");
   const [desc, setDesc] = useState("");
@@ -158,13 +159,13 @@ export const ShopDashboardPage: React.FC = () => {
         text: incomingMsg.content || incomingMsg.text || "",
         createdAt: incomingMsg.createdAt
           ? new Date(incomingMsg.createdAt).toLocaleTimeString("vi-VN", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })
+            hour: "2-digit",
+            minute: "2-digit",
+          })
           : new Date().toLocaleTimeString("vi-VN", {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
         isFromCustomer: incomingMsg.senderId !== String(shopId),
         senderName: incomingMsg.senderName,
         imageUrl: incomingMsg.imageUrl,
@@ -287,6 +288,7 @@ export const ShopDashboardPage: React.FC = () => {
     setTitle("");
     setAuthor("");
     setPublisher("NXB Trẻ");
+    setPublishedYear(String(new Date().getFullYear()));
     setPrice("95000");
     setStock("50");
     setDesc("");
@@ -306,6 +308,7 @@ export const ShopDashboardPage: React.FC = () => {
     setTitle(book.title);
     setAuthor(book.author);
     setPublisher(book.publisher);
+    setPublishedYear(String(book.publishedYear || new Date().getFullYear()));
     setPrice(String(book.price));
     setStock(String(book.stock));
     setDesc(book.description);
@@ -437,6 +440,7 @@ export const ShopDashboardPage: React.FC = () => {
           title,
           author,
           publisher,
+          publishedYear: Number(publishedYear) || new Date().getFullYear(),
           price: Number(price) || 0,
           stock: Number(stock) || 0,
           categoryId: selectedCategoryGuid,
@@ -457,6 +461,7 @@ export const ShopDashboardPage: React.FC = () => {
           title,
           author,
           publisher,
+          publishedYear: Number(publishedYear) || new Date().getFullYear(),
           price: Number(price) || 0,
           stock: Number(stock) || 0,
           rating: 5.0,
@@ -533,13 +538,13 @@ export const ShopDashboardPage: React.FC = () => {
         prev.map((f) =>
           f.orderId === orderId
             ? {
-                ...f,
-                feedback: {
-                  ...f.feedback,
-                  shopReply: text.trim(),
-                  shopRepliedAt: new Date().toISOString().split("T")[0],
-                },
-              }
+              ...f,
+              feedback: {
+                ...f.feedback,
+                shopReply: text.trim(),
+                shopRepliedAt: new Date().toISOString().split("T")[0],
+              },
+            }
             : f
         )
       );
@@ -556,7 +561,7 @@ export const ShopDashboardPage: React.FC = () => {
   const filteredProducts = products.filter((p) => {
     const matchSearch = productSearch
       ? p.title.toLowerCase().includes(productSearch.toLowerCase()) ||
-        p.author.toLowerCase().includes(productSearch.toLowerCase())
+      p.author.toLowerCase().includes(productSearch.toLowerCase())
       : true;
     if (!matchSearch) return false;
 
@@ -569,7 +574,7 @@ export const ShopDashboardPage: React.FC = () => {
   const filteredChatThreads = chatThreads.filter((t) =>
     threadSearch
       ? t.userName.toLowerCase().includes(threadSearch.toLowerCase()) ||
-        (t.lastMessage && t.lastMessage.toLowerCase().includes(threadSearch.toLowerCase()))
+      (t.lastMessage && t.lastMessage.toLowerCase().includes(threadSearch.toLowerCase()))
       : true
   );
 
@@ -812,41 +817,37 @@ export const ShopDashboardPage: React.FC = () => {
             <span className="text-xs font-semibold text-slate-500 mr-1">Bộ lọc:</span>
             <button
               onClick={() => setProductStatusFilter("ACTIVE")}
-              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-                productStatusFilter === "ACTIVE"
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${productStatusFilter === "ACTIVE"
                   ? "bg-emerald-600 text-white shadow-xs"
                   : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
-              }`}
+                }`}
             >
               Đang kinh doanh ({activeProducts.length})
             </button>
             <button
               onClick={() => setProductStatusFilter("OUT_OF_STOCK")}
-              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-                productStatusFilter === "OUT_OF_STOCK"
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${productStatusFilter === "OUT_OF_STOCK"
                   ? "bg-amber-600 text-white shadow-xs"
                   : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
-              }`}
+                }`}
             >
               Hết hàng ({outOfStockProducts.length})
             </button>
             <button
               onClick={() => setProductStatusFilter("HIDDEN")}
-              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-                productStatusFilter === "HIDDEN"
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${productStatusFilter === "HIDDEN"
                   ? "bg-slate-700 text-white shadow-xs"
                   : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
-              }`}
+                }`}
             >
               Đã ẩn ({hiddenProducts.length})
             </button>
             <button
               onClick={() => setProductStatusFilter("ALL")}
-              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-                productStatusFilter === "ALL"
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${productStatusFilter === "ALL"
                   ? "bg-slate-900 text-white shadow-xs"
                   : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
-              }`}
+                }`}
             >
               Tất cả ({products.length})
             </button>
@@ -862,17 +863,17 @@ export const ShopDashboardPage: React.FC = () => {
                   {productSearch
                     ? "Không tìm thấy sách phù hợp"
                     : productStatusFilter === "HIDDEN"
-                    ? "Không có cuốn sách nào bị ẩn"
-                    : productStatusFilter === "OUT_OF_STOCK"
-                    ? "Không có sách nào hết hàng"
-                    : "Gian hàng chưa có đầu sách nào trong kho"}
+                      ? "Không có cuốn sách nào bị ẩn"
+                      : productStatusFilter === "OUT_OF_STOCK"
+                        ? "Không có sách nào hết hàng"
+                        : "Gian hàng chưa có đầu sách nào trong kho"}
                 </h3>
                 <p className="text-slate-500 text-xs max-w-sm mx-auto mb-4">
                   {productSearch
                     ? "Vui lòng thử tìm kiếm với từ khóa khác hoặc xóa bộ lọc."
                     : productStatusFilter === "ACTIVE"
-                    ? "Đăng bán sản phẩm sách đầu tiên để tiếp cận độc giả trên sàn BookVerse."
-                    : "Các đầu sách phù hợp sẽ hiển thị tại đây khi có thay đổi."}
+                      ? "Đăng bán sản phẩm sách đầu tiên để tiếp cận độc giả trên sàn BookVerse."
+                      : "Các đầu sách phù hợp sẽ hiển thị tại đây khi có thay đổi."}
                 </p>
                 {!productSearch && productStatusFilter === "ACTIVE" && (
                   <Btn size="sm" color="#047857" onClick={handleOpenAddModal} className="mx-auto">
@@ -1086,11 +1087,10 @@ export const ShopDashboardPage: React.FC = () => {
                     <button
                       key={t.chatId}
                       onClick={() => handleSelectThread(t)}
-                      className={`w-full p-4 text-left flex items-start gap-3 transition-colors cursor-pointer ${
-                        isSelected
+                      className={`w-full p-4 text-left flex items-start gap-3 transition-colors cursor-pointer ${isSelected
                           ? "bg-emerald-50/80 border-l-4 border-emerald-600"
                           : "hover:bg-slate-100/60 bg-white"
-                      }`}
+                        }`}
                     >
                       <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs">
                         <UserIcon size={18} />
@@ -1160,11 +1160,10 @@ export const ShopDashboardPage: React.FC = () => {
                         className={`flex flex-col ${isShop ? "items-end" : "items-start"}`}
                       >
                         <div
-                          className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-xs sm:text-sm shadow-xs ${
-                            isShop
+                          className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-xs sm:text-sm shadow-xs ${isShop
                               ? "bg-[#047857] text-white rounded-br-none"
                               : "bg-white text-slate-800 border border-slate-200 rounded-bl-none"
-                          }`}
+                            }`}
                         >
                           <p className="leading-relaxed whitespace-pre-wrap">{m.text}</p>
                         </div>
@@ -1260,11 +1259,10 @@ export const ShopDashboardPage: React.FC = () => {
                 {bookImages.map((img, index) => (
                   <div
                     key={index}
-                    className={`relative rounded-xl overflow-hidden border transition-all group bg-slate-50 ${
-                      img.isCover
+                    className={`relative rounded-xl overflow-hidden border transition-all group bg-slate-50 ${img.isCover
                         ? "border-emerald-500 ring-2 ring-emerald-500/20 shadow-xs"
                         : "border-slate-200 hover:border-slate-300"
-                    }`}
+                      }`}
                   >
                     <div className="aspect-[3/4] w-full bg-slate-100 relative">
                       <img
@@ -1316,11 +1314,10 @@ export const ShopDashboardPage: React.FC = () => {
             {/* Upload Action Box */}
             <div
               onClick={() => !isUploadingImage && !isSubmitting && fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-all ${
-                isUploadingImage || isSubmitting
+              className={`border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-all ${isUploadingImage || isSubmitting
                   ? "bg-slate-50 border-slate-300 cursor-not-allowed"
                   : "border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/30"
-              }`}
+                }`}
             >
               {isUploadingImage ? (
                 <div className="flex flex-col items-center justify-center py-2">
@@ -1411,7 +1408,7 @@ export const ShopDashboardPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">
                 Nhà xuất bản
@@ -1421,6 +1418,20 @@ export const ShopDashboardPage: React.FC = () => {
                 onChange={(e) => setPublisher(e.target.value)}
                 placeholder="NXB Trẻ..."
                 className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500 bg-slate-50"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">
+                Năm XB *
+              </label>
+              <input
+                type="number"
+                min="1000"
+                max={new Date().getFullYear() + 1}
+                value={publishedYear}
+                onChange={(e) => setPublishedYear(e.target.value)}
+                placeholder={String(new Date().getFullYear())}
+                className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-emerald-500 bg-slate-50 font-mono"
               />
             </div>
             <div>

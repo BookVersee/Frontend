@@ -271,7 +271,7 @@ export const shopService = {
         imageUrl: primaryImageUrl,
         imageUrls: formattedImageUrls,
         images: formattedImages,
-        publishedYear: product.publishedYear,
+        publishedYear: Number(product.publishedYear) || new Date().getFullYear(),
         status: product.status,
       }, {
         params: { bookId: id }
@@ -335,23 +335,36 @@ export const shopService = {
         params: { pageIndex: 1, pageSize: 50 }
       });
       const data = res.data.data;
-      const items = data.items || data || [];
-      return items.map((f: any) => ({
-        orderId: f.orderId,
-        feedback: {
-          id: f.id,
-          orderId: f.orderId,
-          bookId: f.bookId,
-          rating: f.rating,
-          content: f.comment || f.content,
-          type: "SHOP",
-          createdAt: f.createdAt,
-          customer: f.userFullName || "Khách hàng",
-          customerName: f.userFullName || "Khách hàng",
-          shopReply: f.shopResponse?.responseContent,
-          shopRepliedAt: f.shopResponse?.createdAt,
-        }
-      }));
+      const items = data?.items || data || [];
+      return items.map((f: any) => {
+        const fbId = f.feedbackId || f.id;
+        const ordId = f.orderId || f.orderDetailId || fbId;
+        const responseData = f.response || f.shopResponse;
+        return {
+          orderId: ordId,
+          feedback: {
+            id: fbId,
+            feedbackId: fbId,
+            orderId: ordId,
+            orderDetailId: f.orderDetailId,
+            bookId: f.bookId,
+            bookTitle: f.bookTitle || "Sách chính hãng BookVerse",
+            bookImageUrl: f.bookImageUrl,
+            bookPrice: f.bookPrice,
+            rating: f.rating ?? 5,
+            content: f.content || f.comment || "",
+            type: f.type || "BOOK",
+            imageUrl: f.imageUrl,
+            createdAt: f.createdAt,
+            customer: f.customerName || f.userFullName || "Khách hàng",
+            customerName: f.customerName || f.userFullName || "Khách hàng",
+            customerAvatar: f.customerAvatar,
+            shopReply: responseData?.content || responseData?.responseContent,
+            shopRepliedAt: responseData?.createdAt,
+            shopReplyImageUrl: responseData?.imageUrl,
+          }
+        };
+      });
     } catch (error) {
       console.warn("getShopFeedbacks API error, falling back to mock:", error);
       return INITIAL_ORDERS
@@ -364,17 +377,19 @@ export const shopService = {
   },
 
   // 10. Trả lời phản hồi đánh giá của khách (ReplyFeedback)
-  async replyFeedback(feedbackId: string | number, reply: string): Promise<boolean> {
+  async replyFeedback(feedbackId: string | number, reply: string, imageUrl?: string): Promise<boolean> {
     try {
       await apiClient.post("/shop/ReplyFeedback", {
-        responseContent: reply
+        feedbackId,
+        content: reply,
+        imageUrl: imageUrl || null
       }, {
         params: { feedbackId }
       });
       return true;
     } catch (error) {
-      console.warn("replyFeedback API error, falling back to mock:", error);
-      return true;
+      console.error("replyFeedback API error:", error);
+      throw error;
     }
   },
 

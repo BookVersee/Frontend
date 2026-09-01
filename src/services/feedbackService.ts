@@ -9,19 +9,30 @@ export const feedbackService = {
         params: { bookId }
       });
       const items = res.data.data || [];
-      return items.map((f: any) => ({
-        id: f.id,
-        orderId: f.orderDetailId,
-        bookId: f.bookId,
-        rating: f.rating,
-        content: f.comment,
-        type: "BOOK",
-        createdAt: f.createdAt,
-        customer: f.userFullName || "Độc giả BookVerse",
-        customerName: f.userFullName || "Độc giả BookVerse",
-        shopReply: f.shopResponse?.responseContent,
-        shopRepliedAt: f.shopResponse?.createdAt,
-      }));
+      return items.map((f: any) => {
+        const fbId = f.id || f.feedbackId;
+        const responseData = f.response || f.shopResponse;
+        return {
+          id: fbId,
+          feedbackId: fbId,
+          orderId: f.orderId || f.orderDetailId,
+          orderDetailId: f.orderDetailId,
+          bookId: f.bookId || bookId,
+          bookTitle: f.bookTitle,
+          bookImageUrl: f.bookImageUrl,
+          rating: f.rating ?? 5,
+          content: f.content || f.comment || "",
+          type: f.type || "BOOK",
+          imageUrl: f.imageUrl,
+          createdAt: f.createdAt,
+          customer: f.customerName || f.userFullName || "Độc giả BookVerse",
+          customerName: f.customerName || f.userFullName || "Độc giả BookVerse",
+          customerAvatar: f.customerAvatar,
+          shopReply: responseData?.content || responseData?.responseContent,
+          shopRepliedAt: responseData?.createdAt,
+          shopReplyImageUrl: responseData?.imageUrl,
+        };
+      });
     } catch (error) {
       console.warn("getBookFeedbacks API error, falling back to empty list:", error);
       return [];

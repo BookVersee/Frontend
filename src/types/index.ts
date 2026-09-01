@@ -82,16 +82,24 @@ export interface OrderTracking {
 
 export interface OrderFeedback {
   id?: string | number;
+  feedbackId?: string | number;
   orderId?: string | number;
+  orderDetailId?: string | number;
   bookId?: string | number;
+  bookTitle?: string;
+  bookImageUrl?: string;
+  bookPrice?: number;
   rating: number;
   content: string;
-  type: "SHOP" | "BOOK";
+  type?: "SHOP" | "BOOK" | string;
+  imageUrl?: string;
   createdAt: string;
   customer?: string;
   customerName?: string;
+  customerAvatar?: string;
   shopReply?: string;
   shopRepliedAt?: string;
+  shopReplyImageUrl?: string;
   isReported?: boolean;
   reportReason?: string;
 }
