@@ -80,17 +80,34 @@ export function deliveryStatusInfo(s: DeliveryStatus): {
   return map[s] || { label: s, color: "#7a6a5a", bg: "#f3ede4" };
 }
 
-export const ROLE_LABELS: Record<Role, string> = {
+export const ROLE_LABELS: Record<string, string> = {
   customer: "Khách hàng",
   shop: "Cửa hàng",
   admin: "Quản trị viên",
   deliver: "Người giao hàng",
+  delivery: "Người giao hàng",
+  super_admin: "Quản trị cấp cao",
+  CUSTOMER: "Khách hàng",
+  SHOP: "Cửa hàng",
+  ADMIN: "Quản trị viên",
+  DELIVER: "Người giao hàng",
+  DELIVERY: "Người giao hàng",
+  SUPER_ADMIN: "Quản trị cấp cao",
 };
 
-export const ROLE_COLORS: Record<Role, string> = {
+export const ROLE_COLORS: Record<string, string> = {
   customer: "#7c4a2d",
   shop: "#c8843a",
   admin: "#2a211c",
   deliver: "#3d5c2e",
+  delivery: "#3d5c2e",
+  super_admin: "#1e1b4b",
+  CUSTOMER: "#7c4a2d",
+  SHOP: "#c8843a",
+  ADMIN: "#2a211c",
+  DELIVER: "#3d5c2e",
+  DELIVERY: "#3d5c2e",
+  SUPER_ADMIN: "#1e1b4b",
 };
+
 

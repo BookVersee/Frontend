@@ -24,18 +24,22 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setStoredCart(cart);
   }, [cart]);
 
-  const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const subtotal = cart.reduce((sum, item) => sum + item.book.price * item.quantity, 0);
+  const cartCount = cart.reduce((sum, item) => sum + (Number(item?.quantity) || 0), 0);
+  const subtotal = cart.reduce(
+    (sum, item) => sum + (Number(item?.book?.price) || 0) * (Number(item?.quantity) || 0),
+    0
+  );
   const shippingFee = cart.length > 0 ? 30000 : 0;
   const total = subtotal + shippingFee;
 
   const addToCart = (book: Book, quantity = 1) => {
+    if (!book || !book.id) return;
     setCart((prev) => {
-      const existing = prev.find((item) => String(item.book.id) === String(book.id));
+      const existing = prev.find((item) => item?.book && String(item.book.id) === String(book.id));
       if (existing) {
         return prev.map((item) =>
-          String(item.book.id) === String(book.id)
-            ? { ...item, quantity: item.quantity + quantity }
+          item?.book && String(item.book.id) === String(book.id)
+            ? { ...item, quantity: (Number(item.quantity) || 0) + quantity }
             : item
         );
       }
@@ -49,14 +53,14 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } else {
       setCart((prev) =>
         prev.map((item) =>
-          String(item.book.id) === String(bookId) ? { ...item, quantity } : item
+          item?.book && String(item.book.id) === String(bookId) ? { ...item, quantity } : item
         )
       );
     }
   };
 
   const removeFromCart = (bookId: string | number) => {
-    setCart((prev) => prev.filter((item) => String(item.book.id) !== String(bookId)));
+    setCart((prev) => prev.filter((item) => item?.book && String(item.book.id) !== String(bookId)));
   };
 
   const clearCart = () => {

@@ -24,8 +24,9 @@ import {
   Image as ImageIcon,
   Loader2,
   AlertCircle,
+  Star,
 } from "lucide-react";
-import { Order, Book, Category, OrderStatus, OrderFeedback, ChatMessage } from "../../types";
+import { Order, Book, Category, OrderStatus, OrderFeedback, ChatMessage, BookImageDto, Shop } from "../../types";
 import { shopService } from "../../services/shopService";
 import { bookService } from "../../services/bookService";
 import { chatService, ChatThread } from "../../services/chatService";
@@ -43,8 +44,10 @@ import { Modal } from "../../components/common/Modal";
 
 export const ShopDashboardPage: React.FC = () => {
   const { user } = useAuth();
-  const shopId = user?.shopId || 1;
-  const shopName = user?.shopName || "Nhà sách Phương Nam";
+  const [currentShop, setCurrentShop] = useState<Shop | null>(null);
+
+  const shopId = currentShop?.id || user?.shopId || 1;
+  const shopName = currentShop?.name || user?.shopName || "Gian hàng của tôi";
 
   const [tab, setTab] = useState<"orders" | "products" | "feedbacks" | "revenue" | "chat">("orders");
   const [orders, setOrders] = useState<Order[]>([]);
@@ -53,8 +56,9 @@ export const ShopDashboardPage: React.FC = () => {
   const [feedbacks, setFeedbacks] = useState<{ orderId: number; feedback: OrderFeedback }[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Search in shop products
+  // Search & Filter in shop products
   const [productSearch, setProductSearch] = useState("");
+  const [productStatusFilter, setProductStatusFilter] = useState<"ACTIVE" | "OUT_OF_STOCK" | "HIDDEN" | "ALL">("ACTIVE");
 
   // Add & Edit Product Modal State
   const [showProductModal, setShowProductModal] = useState(false);
@@ -70,6 +74,9 @@ export const ShopDashboardPage: React.FC = () => {
   const [color1, setColor1] = useState("#1d4ed8");
   const [color2, setColor2] = useState("#3b82f6");
   const [imageUrl, setImageUrl] = useState("");
+  const [bookImages, setBookImages] = useState<
+    { url: string; publicId?: string; isCover: boolean; displayOrder: number }[]
+  >([]);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -97,11 +104,17 @@ export const ShopDashboardPage: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
+      const profile = await shopService.getMyProfile();
+      if (profile) {
+        setCurrentShop(profile);
+      }
+      const activeId = profile?.id || user?.shopId || 1;
+
       const [ordersData, productsData, feedbacksData, threadsData, categoriesData] = await Promise.all([
-        shopService.getShopOrders(shopId),
-        shopService.getShopProducts(shopId),
-        shopService.getShopFeedbacks(shopId),
-        chatService.getShopConversations(shopId),
+        shopService.getShopOrders(activeId),
+        shopService.getShopProducts(activeId),
+        shopService.getShopFeedbacks(activeId),
+        chatService.getShopConversations(activeId),
         bookService.getCategories(),
       ]);
       setOrders(ordersData);
@@ -122,7 +135,7 @@ export const ShopDashboardPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [shopId]);
+  }, [user?.id]);
 
   // Khởi tạo kết nối SignalR cho Shop Dashboard
   useEffect(() => {
@@ -282,6 +295,7 @@ export const ShopDashboardPage: React.FC = () => {
     setColor1("#1d4ed8");
     setColor2("#3b82f6");
     setImageUrl("");
+    setBookImages([]);
     setUploadError(null);
     setFormError(null);
     setShowProductModal(true);
@@ -300,22 +314,61 @@ export const ShopDashboardPage: React.FC = () => {
     setColor1(book.coverColor);
     setColor2(book.coverColor2);
     setImageUrl(book.imageUrl || "");
+
+    // Đổ danh sách hình ảnh đã có vào modal
+    if (book.images && book.images.length > 0) {
+      setBookImages(
+        book.images.map((img, idx) => ({
+          url: img.imageUrl,
+          publicId: img.publicId,
+          isCover: img.isCover ?? (img.imageUrl === book.imageUrl || idx === 0),
+          displayOrder: img.displayOrder ?? idx,
+        }))
+      );
+    } else if (book.imageUrl) {
+      setBookImages([
+        {
+          url: book.imageUrl,
+          isCover: true,
+          displayOrder: 0,
+        },
+      ]);
+    } else {
+      setBookImages([]);
+    }
+
     setUploadError(null);
     setFormError(null);
     setShowProductModal(true);
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
+    const fileList = Array.from(files);
     setIsUploadingImage(true);
     setUploadError(null);
+
     try {
-      const res = await uploadService.uploadImage(file, "bookverse/books");
-      setImageUrl(res.url);
+      const uploaded = await uploadService.uploadMultipleImages(fileList, "bookverse/books");
+      setBookImages((prev) => {
+        const hasCover = prev.some((img) => img.isCover);
+        const newItems = uploaded.map((item, idx) => ({
+          url: item.url,
+          publicId: item.publicId,
+          isCover: !hasCover && idx === 0,
+          displayOrder: prev.length + idx,
+        }));
+        const combined = [...prev, ...newItems];
+        const cover = combined.find((img) => img.isCover) || combined[0];
+        if (cover) {
+          setImageUrl(cover.url);
+        }
+        return combined;
+      });
     } catch (err: any) {
-      setUploadError(err.message || "Tải ảnh lên thất bại. Vui lòng thử lại.");
+      setUploadError(err.message || "Tải danh sách ảnh lên thất bại. Vui lòng thử lại.");
     } finally {
       setIsUploadingImage(false);
       if (fileInputRef.current) {
@@ -324,9 +377,34 @@ export const ShopDashboardPage: React.FC = () => {
     }
   };
 
-  const handleRemoveImage = () => {
-    setImageUrl("");
-    setUploadError(null);
+  const handleSetCoverImage = (index: number) => {
+    setBookImages((prev) => {
+      const updated = prev.map((img, i) => ({
+        ...img,
+        isCover: i === index,
+      }));
+      if (updated[index]) {
+        setImageUrl(updated[index].url);
+      }
+      return updated;
+    });
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setBookImages((prev) => {
+      const updated = prev.filter((_, i) => i !== index);
+      if (updated.length === 0) {
+        setImageUrl("");
+        return [];
+      }
+      const hasCover = updated.some((img) => img.isCover);
+      if (!hasCover && updated.length > 0) {
+        updated[0].isCover = true;
+      }
+      const cover = updated.find((img) => img.isCover) || updated[0];
+      setImageUrl(cover ? cover.url : "");
+      return updated;
+    });
   };
 
   const handleSaveProduct = async (e: React.FormEvent) => {
@@ -337,6 +415,18 @@ export const ShopDashboardPage: React.FC = () => {
     }
 
     const selectedCategoryGuid = categoryId || categories[0]?.id || "11111111-0000-0000-0000-000000000001";
+    const primaryCoverUrl =
+      bookImages.find((img) => img.isCover)?.url ||
+      bookImages[0]?.url ||
+      imageUrl.trim() ||
+      undefined;
+
+    const formattedImages: BookImageDto[] = bookImages.map((img, idx) => ({
+      imageUrl: img.url,
+      publicId: img.publicId,
+      isCover: img.isCover,
+      displayOrder: idx,
+    }));
 
     setIsSubmitting(true);
     setFormError(null);
@@ -354,7 +444,9 @@ export const ShopDashboardPage: React.FC = () => {
           isbn,
           coverColor: color1,
           coverColor2: color2,
-          imageUrl: imageUrl.trim() || undefined,
+          imageUrl: primaryCoverUrl,
+          images: formattedImages.length > 0 ? formattedImages : undefined,
+          imageUrls: formattedImages.length > 0 ? formattedImages.map((i) => i.imageUrl) : undefined,
         });
         setProducts((prev) => prev.map((b) => (b.id === editingBookId ? updated : b)));
       } else {
@@ -372,7 +464,9 @@ export const ShopDashboardPage: React.FC = () => {
           description: desc || "Tác phẩm mới cập nhật tại nhà sách.",
           coverColor: color1,
           coverColor2: color2,
-          imageUrl: imageUrl.trim() || undefined,
+          imageUrl: primaryCoverUrl,
+          images: formattedImages.length > 0 ? formattedImages : undefined,
+          imageUrls: formattedImages.length > 0 ? formattedImages.map((i) => i.imageUrl) : undefined,
           status: "ACTIVE",
           isbn,
         });
@@ -390,8 +484,42 @@ export const ShopDashboardPage: React.FC = () => {
 
   const handleDeleteProduct = async (id: string | number) => {
     if (confirm("Bạn có chắc chắn muốn ẩn đầu sách này khỏi gian hàng?")) {
-      await shopService.deleteProduct(id);
-      setProducts((prev) => prev.filter((b) => b.id !== id));
+      try {
+        await shopService.deleteProduct(id);
+        setProducts((prev) =>
+          prev.map((b) => (b.id === id ? { ...b, status: "HIDDEN" } : b))
+        );
+      } catch (err: any) {
+        console.warn("Lỗi khi ẩn sách:", err);
+        const errMsg = err?.message || "";
+        if (
+          errMsg.includes("không tìm thấy") ||
+          errMsg.includes("404") ||
+          errMsg.includes("not found") ||
+          errMsg.includes("quyền")
+        ) {
+          setProducts((prev) => prev.filter((b) => b.id !== id));
+          alert("Đã gỡ sách khỏi danh sách hiển thị gian hàng.");
+        } else {
+          alert(errMsg || "Không thể ẩn sách khỏi gian hàng. Vui lòng thử lại.");
+        }
+      }
+    }
+  };
+
+  const handleUnhideProduct = async (book: Book) => {
+    try {
+      await shopService.updateProduct(book.id, {
+        ...book,
+        status: "ACTIVE",
+      });
+      setProducts((prev) =>
+        prev.map((b) => (b.id === book.id ? { ...b, status: "ACTIVE" } : b))
+      );
+      alert(`Đã mở bán lại cuốn sách "${book.title}" thành công!`);
+    } catch (err: any) {
+      console.error("Lỗi khi mở bán lại sách:", err);
+      alert(err.message || "Không thể mở bán lại sách. Vui lòng thử lại.");
     }
   };
 
@@ -421,12 +549,22 @@ export const ShopDashboardPage: React.FC = () => {
     }
   };
 
-  const filteredProducts = products.filter((p) =>
-    productSearch
+  const activeProducts = products.filter((p) => p.status === "ACTIVE");
+  const outOfStockProducts = products.filter((p) => p.status === "OUT_OF_STOCK" || p.stock === 0);
+  const hiddenProducts = products.filter((p) => p.status === "HIDDEN");
+
+  const filteredProducts = products.filter((p) => {
+    const matchSearch = productSearch
       ? p.title.toLowerCase().includes(productSearch.toLowerCase()) ||
         p.author.toLowerCase().includes(productSearch.toLowerCase())
-      : true
-  );
+      : true;
+    if (!matchSearch) return false;
+
+    if (productStatusFilter === "ACTIVE") return p.status === "ACTIVE";
+    if (productStatusFilter === "OUT_OF_STOCK") return p.status === "OUT_OF_STOCK" || p.stock === 0;
+    if (productStatusFilter === "HIDDEN") return p.status === "HIDDEN";
+    return true;
+  });
 
   const filteredChatThreads = chatThreads.filter((t) =>
     threadSearch
@@ -473,7 +611,7 @@ export const ShopDashboardPage: React.FC = () => {
             size="sm"
             color="#047857"
           >
-            <BookOpen size={14} /> Kho sách ({products.length})
+            <BookOpen size={14} /> Kho sách ({activeProducts.length})
           </Btn>
           <Btn
             onClick={() => setTab("feedbacks")}
@@ -525,7 +663,7 @@ export const ShopDashboardPage: React.FC = () => {
         />
         <StatCard
           label="Tổng đầu sách"
-          value={String(products.length)}
+          value={String(activeProducts.length)}
           sub="Đang kinh doanh"
           icon={<BookOpen size={22} />}
           color="#6d28d9"
@@ -652,7 +790,7 @@ export const ShopDashboardPage: React.FC = () => {
           <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h2 className="font-bold text-slate-800 text-base">
-                Kho sách của cửa hàng ({products.length} tựa sách)
+                Kho sách của cửa hàng ({filteredProducts.length} tựa sách)
               </h2>
             </div>
 
@@ -669,11 +807,79 @@ export const ShopDashboardPage: React.FC = () => {
             </div>
           </div>
 
+          {/* Status Filter Bar */}
+          <div className="px-6 py-2.5 bg-slate-50/70 border-b border-slate-100 flex items-center gap-2 overflow-x-auto">
+            <span className="text-xs font-semibold text-slate-500 mr-1">Bộ lọc:</span>
+            <button
+              onClick={() => setProductStatusFilter("ACTIVE")}
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                productStatusFilter === "ACTIVE"
+                  ? "bg-emerald-600 text-white shadow-xs"
+                  : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+              }`}
+            >
+              Đang kinh doanh ({activeProducts.length})
+            </button>
+            <button
+              onClick={() => setProductStatusFilter("OUT_OF_STOCK")}
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                productStatusFilter === "OUT_OF_STOCK"
+                  ? "bg-amber-600 text-white shadow-xs"
+                  : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+              }`}
+            >
+              Hết hàng ({outOfStockProducts.length})
+            </button>
+            <button
+              onClick={() => setProductStatusFilter("HIDDEN")}
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                productStatusFilter === "HIDDEN"
+                  ? "bg-slate-700 text-white shadow-xs"
+                  : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+              }`}
+            >
+              Đã ẩn ({hiddenProducts.length})
+            </button>
+            <button
+              onClick={() => setProductStatusFilter("ALL")}
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                productStatusFilter === "ALL"
+                  ? "bg-slate-900 text-white shadow-xs"
+                  : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+              }`}
+            >
+              Tất cả ({products.length})
+            </button>
+          </div>
+
           <div className="divide-y divide-slate-100">
             {filteredProducts.length === 0 ? (
-              <p className="text-center text-slate-400 py-12 text-sm">
-                Không tìm thấy sách nào trong kho.
-              </p>
+              <div className="text-center py-16 px-4">
+                <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3 shadow-xs">
+                  <BookOpen size={26} />
+                </div>
+                <h3 className="font-bold text-slate-800 text-sm mb-1">
+                  {productSearch
+                    ? "Không tìm thấy sách phù hợp"
+                    : productStatusFilter === "HIDDEN"
+                    ? "Không có cuốn sách nào bị ẩn"
+                    : productStatusFilter === "OUT_OF_STOCK"
+                    ? "Không có sách nào hết hàng"
+                    : "Gian hàng chưa có đầu sách nào trong kho"}
+                </h3>
+                <p className="text-slate-500 text-xs max-w-sm mx-auto mb-4">
+                  {productSearch
+                    ? "Vui lòng thử tìm kiếm với từ khóa khác hoặc xóa bộ lọc."
+                    : productStatusFilter === "ACTIVE"
+                    ? "Đăng bán sản phẩm sách đầu tiên để tiếp cận độc giả trên sàn BookVerse."
+                    : "Các đầu sách phù hợp sẽ hiển thị tại đây khi có thay đổi."}
+                </p>
+                {!productSearch && productStatusFilter === "ACTIVE" && (
+                  <Btn size="sm" color="#047857" onClick={handleOpenAddModal} className="mx-auto">
+                    <Plus size={14} /> Thêm sách mới ngay
+                  </Btn>
+                )}
+              </div>
             ) : (
               filteredProducts.map((book) => (
                 <div
@@ -681,13 +887,30 @@ export const ShopDashboardPage: React.FC = () => {
                   className="p-5 flex items-center justify-between gap-4 hover:bg-slate-50/60 transition-colors"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="w-12 h-16 shrink-0 rounded-lg overflow-hidden border border-slate-200">
+                    <div className="w-12 h-16 shrink-0 rounded-lg overflow-hidden border border-slate-200 relative">
                       <BookCover book={book} size="sm" />
+                      {book.status === "HIDDEN" && (
+                        <div className="absolute inset-0 bg-slate-900/60 flex items-center justify-center text-white text-[9px] font-bold">
+                          ĐÃ ẨN
+                        </div>
+                      )}
                     </div>
                     <div>
-                      <p className="font-bold text-slate-800 text-sm">
-                        {book.title}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-bold text-slate-800 text-sm">
+                          {book.title}
+                        </p>
+                        {book.status === "HIDDEN" && (
+                          <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-slate-200 text-slate-700">
+                            Đã ẩn khỏi sàn
+                          </span>
+                        )}
+                        {book.status === "OUT_OF_STOCK" && (
+                          <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-amber-100 text-amber-800">
+                            Hết hàng
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-slate-500 mt-0.5">
                         Tác giả: {book.author} • NXB: {book.publisher}
                       </p>
@@ -708,20 +931,32 @@ export const ShopDashboardPage: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleOpenEditModal(book)}
-                      className="p-2 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
-                      title="Sửa thông tin"
-                    >
-                      <Edit size={16} />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteProduct(Number(book.id))}
-                      className="p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                      title="Ẩn sách"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    {book.status === "HIDDEN" ? (
+                      <button
+                        onClick={() => handleUnhideProduct(book)}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors flex items-center gap-1.5 cursor-pointer border border-emerald-200 shadow-2xs"
+                        title="Mở bán lại sách này"
+                      >
+                        <CheckCircle size={14} /> Mở bán lại
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => handleOpenEditModal(book)}
+                          className="p-2 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                          title="Sửa thông tin"
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteProduct(book.id || (book as any).bookId)}
+                          className="p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                          title="Ẩn sách"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               ))
@@ -997,93 +1232,120 @@ export const ShopDashboardPage: React.FC = () => {
             </div>
           )}
 
-          {/* Image Upload Area */}
+          {/* Multi-Image Upload & Gallery Area */}
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center justify-between">
-              <span>Hình ảnh bìa sách (Cloudinary CDN)</span>
-              {imageUrl && (
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold text-slate-600">
+                Hình ảnh sản phẩm sách ({bookImages.length} ảnh)
+              </label>
+              {bookImages.length > 0 && (
                 <span className="text-[11px] text-emerald-600 font-medium flex items-center gap-1">
-                  <CheckCircle size={12} /> Đã tải lên Cloud
+                  <CheckCircle size={12} /> Đã lưu trên Cloudinary
                 </span>
               )}
-            </label>
+            </div>
 
             <input
               type="file"
               ref={fileInputRef}
               onChange={handleFileChange}
               accept=".jpg,.jpeg,.png,.webp,.gif"
+              multiple
               className="hidden"
             />
 
-            {imageUrl ? (
-              <div className="relative p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center gap-4 group">
-                <div className="w-16 h-22 shrink-0 rounded-lg overflow-hidden border border-slate-200 shadow-xs bg-white relative">
-                  <img
-                    src={imageUrl}
-                    alt="Preview bìa sách"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-slate-800 truncate">
-                    Ảnh bìa đã chọn
-                  </p>
-                  <p className="text-[11px] text-slate-400 truncate mt-0.5" title={imageUrl}>
-                    {imageUrl}
-                  </p>
-                  <div className="flex items-center gap-2 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={isUploadingImage || isSubmitting}
-                      className="px-2.5 py-1 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
-                    >
-                      Đổi ảnh khác
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleRemoveImage}
-                      disabled={isUploadingImage || isSubmitting}
-                      className="px-2.5 py-1 text-xs font-medium text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
-                    >
-                      <Trash2 size={12} /> Xóa ảnh
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div
-                onClick={() => !isUploadingImage && !isSubmitting && fileInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-all ${
-                  isUploadingImage || isSubmitting
-                    ? "bg-slate-50 border-slate-300 cursor-not-allowed"
-                    : "border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/30"
-                }`}
-              >
-                {isUploadingImage ? (
-                  <div className="flex flex-col items-center justify-center py-2">
-                    <Loader2 size={24} className="text-emerald-600 animate-spin mb-1.5" />
-                    <p className="text-xs font-medium text-emerald-700">
-                      Đang tải ảnh lên Cloudinary...
-                    </p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">Vui lòng chờ trong giây lát</p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-2">
-                    <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-1.5 shadow-xs">
-                      <Upload size={18} />
+            {/* Gallery Grid */}
+            {bookImages.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+                {bookImages.map((img, index) => (
+                  <div
+                    key={index}
+                    className={`relative rounded-xl overflow-hidden border transition-all group bg-slate-50 ${
+                      img.isCover
+                        ? "border-emerald-500 ring-2 ring-emerald-500/20 shadow-xs"
+                        : "border-slate-200 hover:border-slate-300"
+                    }`}
+                  >
+                    <div className="aspect-[3/4] w-full bg-slate-100 relative">
+                      <img
+                        src={img.url}
+                        alt={`Ảnh sách ${index + 1}`}
+                        className="w-full h-full object-cover"
+                      />
+
+                      {/* Badge Cover or Preview Index */}
+                      <div className="absolute top-1.5 left-1.5">
+                        {img.isCover ? (
+                          <span className="px-1.5 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-bold flex items-center gap-1 shadow-xs">
+                            <Star size={10} className="fill-current" /> Bìa chính
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded-md bg-slate-800/80 text-white text-[10px] font-medium backdrop-blur-xs">
+                            Trang #{index}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Action buttons overlay */}
+                      <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5 p-2">
+                        {!img.isCover && (
+                          <button
+                            type="button"
+                            onClick={() => handleSetCoverImage(index)}
+                            disabled={isUploadingImage || isSubmitting}
+                            className="w-full px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                          >
+                            <Star size={11} /> Đặt làm bìa
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveImage(index)}
+                          disabled={isUploadingImage || isSubmitting}
+                          className="w-full px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded text-[11px] font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                        >
+                          <Trash2 size={11} /> Xóa ảnh
+                        </button>
+                      </div>
                     </div>
-                    <p className="text-xs font-semibold text-slate-700">
-                      Nhấn để tải lên ảnh bìa sách
-                    </p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      Hỗ trợ JPG, PNG, WEBP, GIF (Tối đa 10MB)
-                    </p>
                   </div>
-                )}
+                ))}
               </div>
             )}
+
+            {/* Upload Action Box */}
+            <div
+              onClick={() => !isUploadingImage && !isSubmitting && fileInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-all ${
+                isUploadingImage || isSubmitting
+                  ? "bg-slate-50 border-slate-300 cursor-not-allowed"
+                  : "border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/30"
+              }`}
+            >
+              {isUploadingImage ? (
+                <div className="flex flex-col items-center justify-center py-2">
+                  <Loader2 size={24} className="text-emerald-600 animate-spin mb-1.5" />
+                  <p className="text-xs font-medium text-emerald-700">
+                    Đang tải danh sách ảnh lên Cloudinary...
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Vui lòng chờ trong giây lát</p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-2">
+                  <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-1.5 shadow-xs">
+                    <Upload size={18} />
+                  </div>
+                  <p className="text-xs font-semibold text-slate-700">
+                    {bookImages.length > 0
+                      ? "+ Chọn thêm hình ảnh khác (Đọc thử / Góc chụp)"
+                      : "Nhấn để chọn và tải lên nhiều hình ảnh sách"}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Hỗ trợ chọn nhiều file cùng lúc: JPG, PNG, WEBP, GIF (Tối đa 10MB/ảnh)
+                  </p>
+                </div>
+              )}
+            </div>
 
             {uploadError && (
               <p className="text-xs text-rose-600 mt-1.5 flex items-center gap-1">

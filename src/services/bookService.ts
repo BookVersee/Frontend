@@ -33,7 +33,7 @@ export const bookService = {
       const pagedData = res.data.data;
       const items = pagedData.items || [];
       return items.map((b: any) => ({
-        id: b.id,
+        id: b.bookId || b.id,
         shopId: b.shopId,
         shopName: b.shopName,
         categoryId: b.categoryId,
@@ -79,7 +79,7 @@ export const bookService = {
       });
       const b = res.data.data;
       return {
-        id: b.id,
+        id: b.bookId || b.id,
         shopId: b.shopId,
         shopName: b.shopName,
         categoryId: b.categoryId,
@@ -111,7 +111,7 @@ export const bookService = {
         params: { shopId }
       });
       return res.data.data.map((b: any) => ({
-        id: b.id,
+        id: b.bookId || b.id,
         shopId: b.shopId,
         shopName: b.shopName,
         categoryId: b.categoryId,
