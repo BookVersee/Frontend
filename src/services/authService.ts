@@ -41,13 +41,13 @@ export const SEED_ACCOUNTS: Record<Role, { username: string; email: string; pass
     username: "shop_nhanam",
     email: "nhanam@bookverse.com",
     password: "Password123!",
-    name: "Nhã Nam Books Official",
+    name: "Lê Văn Cường (Nhã Nam Books Official)",
   },
   admin: {
     username: "admin",
     email: "admin@bookverse.com",
     password: "Password123!",
-    name: "Hệ Thống Quản Trị Viên",
+    name: "Quản Trị Viên Sàn BookVerse",
   },
   deliver: {
     username: "shipper_ghn1",
@@ -526,8 +526,16 @@ export const authService = {
     return { token: mockToken, user: mockUser };
   },
 
-  logout(): void {
-    removeStoredToken();
+  async logout(refreshToken?: string): Promise<void> {
+    try {
+      await apiClient.post("/user/Logout", {
+        refreshToken: refreshToken || undefined,
+      });
+    } catch (error) {
+      console.warn("[authService] Backend logout API error, proceeding with local cleanup:", error);
+    } finally {
+      removeStoredToken();
+    }
   },
 
   async switchRole(role: Role): Promise<AuthResponse> {
@@ -536,6 +544,14 @@ export const authService = {
       const res = await this.login(creds.username, creds.password);
       return res;
     } catch (error) {
+      if (creds.email && creds.email !== creds.username) {
+        try {
+          const res = await this.login(creds.email, creds.password);
+          return res;
+        } catch (e) {
+          // ignore
+        }
+      }
       console.warn(`[authService] switchRole to ${role} failed against API:`, error);
       const fallbackUser: User = {
         id: Date.now(),

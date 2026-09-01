@@ -29,6 +29,14 @@ export interface Category {
   name: string;
 }
 
+export interface BookImageDto {
+  id?: string | number;
+  imageUrl: string;
+  publicId?: string;
+  isCover?: boolean;
+  displayOrder?: number;
+}
+
 export interface Book {
   id: string | number;
   shopId: string | number;
@@ -45,6 +53,8 @@ export interface Book {
   coverColor: string;
   coverColor2: string;
   imageUrl?: string;
+  images?: BookImageDto[];
+  imageUrls?: string[];
   status: "ACTIVE" | "OUT_OF_STOCK" | "HIDDEN";
   isbn?: string;
   publishedYear?: number;
@@ -234,4 +244,9 @@ export interface UploadImageResponse {
   public_id: string;
   file_name: string;
   size: number;
+}
+
+export interface ImageUploadItem {
+  url: string;
+  publicId: string;
 }

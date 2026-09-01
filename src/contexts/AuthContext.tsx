@@ -28,18 +28,27 @@ interface AuthContextType {
   forgotPassword: (email: string) => Promise<string>;
   verifyResetOtp: (email: string, otpCode: string) => Promise<string>;
   resetPassword: (email: string, otpCode: string, newPassword: string) => Promise<string>;
-  logout: () => void;
+  logout: () => Promise<void>;
   switchRole: (role: Role) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const normalizeRole = (r?: any): Role => {
+  if (!r) return "customer";
+  const str = String(r).toLowerCase().trim();
+  if (str === "admin" || str === "super_admin") return "admin";
+  if (str === "shop") return "shop";
+  if (str === "deliver" || str === "delivery") return "deliver";
+  return "customer";
+};
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(() => getStoredUser<User>());
   const [token, setToken] = useState<string | null>(() => getStoredToken());
   const [role, setRole] = useState<Role>(() => {
     const stored = getStoredUser<User>();
-    return stored?.role || "customer";
+    return normalizeRole(stored?.role);
   });
 
   useEffect(() => {
@@ -47,7 +56,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       authService.getProfile().then((profile) => {
         if (profile) {
           setUser(profile);
-          setRole(profile.role);
+          setRole(normalizeRole(profile.role));
         }
       });
     }
@@ -56,7 +65,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (email: string, password?: string) => {
     const res = await authService.login(email, password);
     setUser(res.user);
-    setRole(res.user.role);
+    setRole(normalizeRole(res.user.role));
     setToken(res.token);
   };
 
@@ -70,7 +79,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }) => {
     const res = await authService.loginWithGoogle(idTokenOrData);
     setUser(res.user);
-    setRole(res.user.role);
+    setRole(normalizeRole(res.user.role));
     setToken(res.token);
   };
 
@@ -84,7 +93,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   ) => {
     const res = await authService.register(data, email, newRole, phone, address, password);
     setUser(res.user);
-    setRole(res.user.role);
+    setRole(normalizeRole(res.user.role));
     setToken(res.token);
   };
 
@@ -100,17 +109,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return await authService.resetPassword(email, otpCode, newPassword);
   };
 
-  const logout = () => {
-    authService.logout();
-    setUser(null);
-    setToken(null);
-    setRole("customer");
+  const logout = async () => {
+    try {
+      await authService.logout();
+    } finally {
+      setUser(null);
+      setToken(null);
+      setRole("customer");
+    }
   };
 
   const switchRole = async (newRole: Role) => {
     const res = await authService.switchRole(newRole);
     setUser(res.user);
-    setRole(res.user.role);
+    setRole(normalizeRole(res.user.role));
     setToken(res.token);
   };
 

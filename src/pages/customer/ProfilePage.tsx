@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { User, Mail, Phone, MapPin, Save, Store, CreditCard, CheckCircle, ShieldCheck } from "lucide-react";
+import { User, Mail, Phone, MapPin, Save, Store, CreditCard, CheckCircle, ShieldCheck, LogOut } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { authService } from "../../services/authService";
 import { Card } from "../../components/common/Card";
@@ -9,7 +9,7 @@ import { fmt } from "../../utils/format";
 import { INITIAL_TRANSACTIONS } from "../../services/mockData";
 
 export const ProfilePage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [name, setName] = useState(user?.name || "");
   const [phone, setPhone] = useState(user?.phone || "");
   const [email, setEmail] = useState(user?.email || "");
@@ -153,6 +153,21 @@ export const ProfilePage: React.FC = () => {
               )}
             </Card>
           )}
+
+          {/* Logout Action */}
+          <Card className="p-4">
+            <button
+              onClick={async () => {
+                if (confirm("Bạn có chắc chắn muốn đăng xuất khỏi tài khoản?")) {
+                  await logout();
+                }
+              }}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-rose-200 text-rose-600 bg-rose-50/50 hover:bg-rose-100/80 text-xs font-semibold transition-all cursor-pointer shadow-2xs"
+            >
+              <LogOut size={15} />
+              <span>Đăng xuất tài khoản</span>
+            </button>
+          </Card>
         </div>
 
         {/* Right Column: Edit Profile & Shop Register Form */}
