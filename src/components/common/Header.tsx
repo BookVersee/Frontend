@@ -138,12 +138,12 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <div
             className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[11px] font-bold shadow-2xs"
-            style={{ backgroundColor: ROLE_COLORS[role] }}
+            style={{ backgroundColor: ROLE_COLORS[role] || "#7c4a2d" }}
           >
-            {ROLE_LABELS[role][0]}
+            {(ROLE_LABELS[role] || "K")[0]}
           </div>
           <span className="text-xs font-semibold">
-            {ROLE_LABELS[role]}
+            {ROLE_LABELS[role] || "Khách hàng"}
           </span>
           <ChevronDown size={13} className="text-[#7a6a5a]" />
         </button>
@@ -153,7 +153,12 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="px-3 py-2 bg-[#1c1612] border-b border-slate-700">
               <p className="text-[11px] font-medium text-[#7a6a5a]">Chọn vai trò demo:</p>
             </div>
-            {(Object.entries(ROLE_LABELS) as [Role, string][]).map(([r, label]) => (
+            {[
+              { r: "customer" as Role, label: "Khách hàng" },
+              { r: "shop" as Role, label: "Cửa hàng" },
+              { r: "admin" as Role, label: "Quản trị viên" },
+              { r: "deliver" as Role, label: "Người giao hàng" },
+            ].map(({ r, label }) => (
               <button
                 key={r}
                 onClick={() => handleRoleChange(r)}
@@ -161,18 +166,18 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 <div
                   className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-white text-[10px] font-bold"
-                  style={{ backgroundColor: ROLE_COLORS[r] }}
+                  style={{ backgroundColor: ROLE_COLORS[r] || "#7c4a2d" }}
                 >
                   {label[0]}
                 </div>
                 <span
                   className={role === r ? "font-bold" : "font-medium"}
-                  style={{ color: role === r ? ROLE_COLORS[r] : "#b5a898" }}
+                  style={{ color: role === r ? (ROLE_COLORS[r] || "#c8843a") : "#b5a898" }}
                 >
                   {label}
                 </span>
                 {role === r && (
-                  <Check size={13} className="ml-auto" style={{ color: ROLE_COLORS[r] }} />
+                  <Check size={13} className="ml-auto" style={{ color: ROLE_COLORS[r] || "#c8843a" }} />
                 )}
               </button>
             ))}
@@ -227,11 +232,11 @@ export const Header: React.FC<HeaderProps> = ({
                   Hồ sơ cá nhân
                 </button>
                 <button
-                  onClick={() => {
-                    logout();
+                  onClick={async () => {
                     setUserMenuOpen(false);
+                    await logout();
                   }}
-                  className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-red-400 hover:bg-red-950/20 hover:text-red-300 transition-colors text-left border-t border-[#3d2b1a]"
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-red-400 hover:bg-red-950/20 hover:text-red-300 transition-colors text-left border-t border-[#3d2b1a] cursor-pointer"
                 >
                   <LogOut size={14} />
                   Đăng xuất

@@ -15,26 +15,40 @@ export const getStoredUser = <T>(): T | null => {
   const data = localStorage.getItem(USER_KEY);
   if (!data) return null;
   try {
-    return JSON.parse(data) as T;
+    const parsed = JSON.parse(data);
+    if (parsed && typeof parsed === "object") {
+      return parsed as T;
+    }
+    return null;
   } catch {
     return null;
   }
 };
 
 export const setStoredUser = (user: unknown): void => {
-  localStorage.setItem(USER_KEY, JSON.stringify(user));
+  if (user) {
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+  } else {
+    localStorage.removeItem(USER_KEY);
+  }
 };
 
 export const getStoredCart = <T>(): T[] => {
   const data = localStorage.getItem(CART_KEY);
   if (!data) return [];
   try {
-    return JSON.parse(data) as T[];
+    const parsed = JSON.parse(data);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item: any) => item && typeof item === "object" && item.book) as T[];
   } catch {
     return [];
   }
 };
 
 export const setStoredCart = (cart: unknown[]): void => {
-  localStorage.setItem(CART_KEY, JSON.stringify(cart));
+  if (Array.isArray(cart)) {
+    localStorage.setItem(CART_KEY, JSON.stringify(cart));
+  } else {
+    localStorage.removeItem(CART_KEY);
+  }
 };
