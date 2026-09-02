@@ -1,7 +1,7 @@
 import { apiClient } from "./api";
 import { User, AuthResponse, Role, Shop, ApiResponse } from "../types";
 import { setStoredToken, setStoredUser, removeStoredToken, getStoredUser } from "../utils/storage";
-import { DEMO_USERS } from "./mockData";
+import { DEMO_USERS, INITIAL_SHOPS } from "./mockData";
 
 export interface RegisterData {
   username?: string;
