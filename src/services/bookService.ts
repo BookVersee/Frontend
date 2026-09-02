@@ -33,7 +33,7 @@ export const bookService = {
       const pagedData = res.data.data;
       const items = pagedData.items || [];
       return items.map((b: any) => ({
-        id: b.id,
+        id: b.bookId || b.id,
         shopId: b.shopId,
         shopName: b.shopName,
         categoryId: b.categoryId,
@@ -48,6 +48,13 @@ export const bookService = {
         coverColor: "#ffffff",
         coverColor2: "#ffffff",
         imageUrl: b.imageUrl,
+        images: (b.images || []).map((img: any) => ({
+          id: img.id,
+          imageUrl: img.imageUrl,
+          publicId: img.publicId,
+          isCover: img.isCover,
+          displayOrder: img.displayOrder,
+        })),
         status: b.status === "ACTIVE" ? "ACTIVE" : b.status === "EMPTY" ? "OUT_OF_STOCK" : "HIDDEN",
         isbn: b.isbn,
         publishedYear: b.publishedYear,
@@ -79,7 +86,7 @@ export const bookService = {
       });
       const b = res.data.data;
       return {
-        id: b.id,
+        id: b.bookId || b.id,
         shopId: b.shopId,
         shopName: b.shopName,
         categoryId: b.categoryId,
@@ -94,6 +101,13 @@ export const bookService = {
         coverColor: "#ffffff",
         coverColor2: "#ffffff",
         imageUrl: b.imageUrl,
+        images: (b.images || []).map((img: any) => ({
+          id: img.id,
+          imageUrl: img.imageUrl,
+          publicId: img.publicId,
+          isCover: img.isCover,
+          displayOrder: img.displayOrder,
+        })),
         status: b.status === "ACTIVE" ? "ACTIVE" : b.status === "EMPTY" ? "OUT_OF_STOCK" : "HIDDEN",
         isbn: b.isbn,
         publishedYear: b.publishedYear,
@@ -111,7 +125,7 @@ export const bookService = {
         params: { shopId }
       });
       return res.data.data.map((b: any) => ({
-        id: b.id,
+        id: b.bookId || b.id,
         shopId: b.shopId,
         shopName: b.shopName,
         categoryId: b.categoryId,
@@ -126,6 +140,13 @@ export const bookService = {
         coverColor: "#ffffff",
         coverColor2: "#ffffff",
         imageUrl: b.imageUrl,
+        images: (b.images || []).map((img: any) => ({
+          id: img.id,
+          imageUrl: img.imageUrl,
+          publicId: img.publicId,
+          isCover: img.isCover,
+          displayOrder: img.displayOrder,
+        })),
         status: b.status === "ACTIVE" ? "ACTIVE" : b.status === "EMPTY" ? "OUT_OF_STOCK" : "HIDDEN",
         isbn: b.isbn,
         publishedYear: b.publishedYear,

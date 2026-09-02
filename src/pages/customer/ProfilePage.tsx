@@ -17,6 +17,7 @@ import {
   Trash2,
   RefreshCw,
   Clock,
+  LogOut,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { authService } from "../../services/authService";
@@ -26,8 +27,13 @@ import { Badge } from "../../components/common/Badge";
 import { Modal } from "../../components/common/Modal";
 import { fmt } from "../../utils/format";
 
-export const ProfilePage: React.FC = () => {
-  const { user } = useAuth();
+interface ProfilePageProps {
+  onOpenAuth?: () => void;
+  onGoHome?: () => void;
+}
+
+export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }) => {
+  const { user, isAuthenticated, logout } = useAuth();
 
   // Profile Form state
   const [name, setName] = useState(user?.name || "");
@@ -66,10 +72,19 @@ export const ProfilePage: React.FC = () => {
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
+  // Tự động mở popup đăng nhập nếu chưa đăng nhập
+  useEffect(() => {
+    if (!isAuthenticated && onOpenAuth) {
+      onOpenAuth();
+    }
+  }, [isAuthenticated, onOpenAuth]);
+
   // Load user transactions on mount
   useEffect(() => {
-    loadTransactions();
-  }, [user?.id]);
+    if (isAuthenticated && user?.id) {
+      loadTransactions();
+    }
+  }, [isAuthenticated, user?.id]);
 
   const loadTransactions = async () => {
     setLoadingTx(true);
@@ -155,21 +170,62 @@ export const ProfilePage: React.FC = () => {
   };
 
   const handleDeleteAccount = async () => {
-    if (deleteConfirmText.toLowerCase() !== "xoa tai khoan") {
+    if (deleteConfirmText.trim().toLowerCase() !== "xoa tai khoan") {
+      return;
+    }
+    if (!window.confirm("Bạn có CHẮC CHẮN muốn hủy / xóa vĩnh viễn tài khoản này? Hành động này không thể hoàn tác.")) {
       return;
     }
     setDeletingAccount(true);
     try {
       await authService.deleteAccount();
       setShowDeleteModal(false);
-      window.location.href = "/";
-    } catch (err) {
+      await logout();
+      onGoHome?.();
+    } catch (err: any) {
       console.error(err);
+      alert(err?.message || "Không thể thực hiện xóa tài khoản vào lúc này.");
       setShowDeleteModal(false);
     } finally {
       setDeletingAccount(false);
     }
   };
+
+  if (!isAuthenticated || !user) {
+    return (
+      <div className="max-w-md mx-auto px-6 py-20 text-center animate-in fade-in zoom-in-95 duration-300">
+        <Card className="p-8 shadow-lg border-amber-100/80 bg-white">
+          <div className="w-16 h-16 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center mx-auto mb-4 text-[#c8843a]">
+            <Lock size={32} />
+          </div>
+          <h2 className="text-xl font-bold text-slate-800 mb-2">
+            Yêu cầu đăng nhập
+          </h2>
+          <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+            Vui lòng đăng nhập hoặc tạo tài khoản BookVerse để xem và quản lý hồ sơ cá nhân của bạn.
+          </p>
+          <div className="flex flex-col gap-2.5">
+            <Btn
+              onClick={onOpenAuth}
+              color="#c8843a"
+              size="md"
+              className="w-full font-semibold shadow-sm"
+            >
+              Đăng nhập ngay
+            </Btn>
+            <Btn
+              onClick={onGoHome}
+              variant="outline"
+              size="md"
+              className="w-full text-slate-600 hover:bg-slate-50"
+            >
+              Trở về trang toàn bộ sách
+            </Btn>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
@@ -284,16 +340,16 @@ export const ProfilePage: React.FC = () => {
             </Card>
           )}
 
-          {/* Account Management */}
-          <Card className="p-5 border-rose-100 bg-rose-50/30 shadow-sm">
-            <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider mb-3 flex items-center gap-1.5 text-rose-700">
+          {/* Account Security & Actions */}
+          <Card className="p-5 border-rose-100 bg-rose-50/30 shadow-sm space-y-3">
+            <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5 text-rose-700">
               <AlertTriangle size={15} /> Quản lý an toàn tài khoản
             </h3>
             <div className="space-y-2">
               <button
                 type="button"
                 onClick={() => setShowDeleteModal(true)}
-                className="w-full flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 text-xs font-semibold shadow-xs transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 text-xs font-semibold shadow-xs transition-colors cursor-pointer"
               >
                 <Trash2 size={14} /> Yêu cầu hủy / xóa tài khoản
               </button>
@@ -608,11 +664,10 @@ export const ProfilePage: React.FC = () => {
                   <div key={tx.id} className="py-3 flex items-center justify-between text-xs hover:bg-slate-50/60 px-2 rounded-lg transition-colors">
                     <div className="flex items-center gap-3">
                       <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
-                          tx.type === "REFUND"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : "bg-blue-100 text-blue-700"
-                        }`}
+                        className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${tx.type === "REFUND"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-blue-100 text-blue-700"
+                          }`}
                       >
                         {tx.type === "REFUND" ? "+" : "-"}
                       </div>
@@ -626,9 +681,8 @@ export const ProfilePage: React.FC = () => {
                     </div>
                     <div className="text-right">
                       <span
-                        className={`font-black text-sm block ${
-                          tx.type === "REFUND" ? "text-emerald-600" : "text-slate-800"
-                        }`}
+                        className={`font-black text-sm block ${tx.type === "REFUND" ? "text-emerald-600" : "text-slate-800"
+                          }`}
                       >
                         {tx.type === "REFUND" ? "+" : "-"}
                         {fmt(tx.amount)}

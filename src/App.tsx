@@ -81,15 +81,29 @@ const AppContent: React.FC = () => {
           />
         )}
 
-        {role === "customer" && customerPage === "book" && selectedBook && (
-          <BookDetailPage
-            book={selectedBook}
-            onBack={() => setCustomerPage("home")}
-            onSelectShop={(shopId) => {
-              setSelectedShopId(shopId);
-              setCustomerPage("shopProfile");
-            }}
-          />
+        {role === "customer" && customerPage === "book" && (
+          selectedBook ? (
+            <BookDetailPage
+              book={selectedBook}
+              onBack={() => setCustomerPage("home")}
+              onSelectShop={(shopId) => {
+                setSelectedShopId(shopId);
+                setCustomerPage("shopProfile");
+              }}
+            />
+          ) : (
+            <HomePage
+              onSelectBook={(book) => {
+                setSelectedBook(book);
+                setCustomerPage("book");
+              }}
+              onGoToCart={() => setCustomerPage("cart")}
+              onSelectShop={(shopId) => {
+                setSelectedShopId(shopId);
+                setCustomerPage("shopProfile");
+              }}
+            />
+          )
         )}
 
         {role === "customer" && customerPage === "shopProfile" && (
@@ -126,15 +140,27 @@ const AppContent: React.FC = () => {
           />
         )}
 
-        {role === "customer" && customerPage === "orderDetail" && selectedOrder && (
-          <OrderDetailPage
-            order={selectedOrder}
-            onBack={() => setCustomerPage("orders")}
-          />
+        {role === "customer" && customerPage === "orderDetail" && (
+          selectedOrder ? (
+            <OrderDetailPage
+              order={selectedOrder}
+              onBack={() => setCustomerPage("orders")}
+            />
+          ) : (
+            <MyOrdersPage
+              onSelectOrder={(order) => {
+                setSelectedOrder(order);
+                setCustomerPage("orderDetail");
+              }}
+            />
+          )
         )}
 
         {role === "customer" && customerPage === "profile" && (
-          <ProfilePage />
+          <ProfilePage
+            onOpenAuth={() => setAuthModalOpen(true)}
+            onGoHome={() => setCustomerPage("home")}
+          />
         )}
 
         {/* SHOP VIEW */}

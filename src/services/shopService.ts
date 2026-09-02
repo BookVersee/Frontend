@@ -143,7 +143,7 @@ export const shopService = {
       const data = res.data.data;
       const items = data.items || data || [];
       return items.map((b: any) => ({
-        id: b.id,
+        id: b.bookId || b.id,
         shopId: b.shopId || shopId || "",
         shopName: b.shopName || "Gian hàng của tôi",
         categoryId: b.categoryId,
@@ -158,6 +158,13 @@ export const shopService = {
         coverColor: "#ffffff",
         coverColor2: "#ffffff",
         imageUrl: b.imageUrl,
+        images: (b.images || []).map((img: any) => ({
+          id: img.id,
+          imageUrl: img.imageUrl,
+          publicId: img.publicId,
+          isCover: img.isCover,
+          displayOrder: img.displayOrder,
+        })),
         status: b.status === "ACTIVE" ? "ACTIVE" : b.status === "EMPTY" ? "OUT_OF_STOCK" : "HIDDEN",
         isbn: b.isbn,
         publishedYear: b.publishedYear,
@@ -171,6 +178,27 @@ export const shopService = {
   // 6. Đăng bán sách mới (CreateShopBook)
   async addProduct(product: Omit<Book, "id">): Promise<Book> {
     try {
+      const primaryImageUrl =
+        product.imageUrl ||
+        (product.images && product.images.length > 0
+          ? product.images.find((i) => i.isCover)?.imageUrl || product.images[0].imageUrl
+          : "");
+
+      const formattedImages = product.images && product.images.length > 0
+        ? product.images.map((img, idx) => ({
+            imageUrl: img.imageUrl,
+            publicId: img.publicId,
+            isCover: img.isCover ?? idx === 0,
+            displayOrder: img.displayOrder ?? idx,
+          }))
+        : undefined;
+
+      const formattedImageUrls = product.imageUrls && product.imageUrls.length > 0
+        ? product.imageUrls
+        : formattedImages
+        ? formattedImages.map((i) => i.imageUrl)
+        : undefined;
+
       const res = await apiClient.post<ApiResponse<any>>("/shop/CreateShopBook", {
         title: product.title,
         author: product.author,
@@ -181,12 +209,16 @@ export const shopService = {
         stockQuantity: product.stock,
         categoryId: product.categoryId,
         description: product.description || "",
-        imageUrl: product.imageUrl || "",
+        imageUrl: primaryImageUrl,
+        imageUrls: formattedImageUrls,
+        images: formattedImages,
       });
       const b = res.data.data;
       return {
         ...product,
-        id: b.id,
+        id: b?.bookId || b?.id,
+        imageUrl: b?.imageUrl || primaryImageUrl,
+        images: b?.images || product.images,
       };
     } catch (error: any) {
       console.warn("addProduct API error:", error);
@@ -205,14 +237,41 @@ export const shopService = {
   // 7. Cập nhật thông tin & giá sách (UpdateShopBook)
   async updateProduct(id: string | number, product: Partial<Book>): Promise<Book> {
     try {
+      const primaryImageUrl =
+        product.imageUrl !== undefined
+          ? product.imageUrl
+          : product.images && product.images.length > 0
+          ? product.images.find((i) => i.isCover)?.imageUrl || product.images[0].imageUrl
+          : undefined;
+
+      const formattedImages = product.images && product.images.length > 0
+        ? product.images.map((img, idx) => ({
+            imageUrl: img.imageUrl,
+            publicId: img.publicId,
+            isCover: img.isCover ?? idx === 0,
+            displayOrder: img.displayOrder ?? idx,
+          }))
+        : undefined;
+
+      const formattedImageUrls = product.imageUrls && product.imageUrls.length > 0
+        ? product.imageUrls
+        : formattedImages
+        ? formattedImages.map((i) => i.imageUrl)
+        : undefined;
+
       const res = await apiClient.post<ApiResponse<any>>("/shop/UpdateShopBook", {
         title: product.title,
+        author: product.author,
+        publisher: product.publisher,
+        isbn: product.isbn,
         price: product.price,
         stockQuantity: product.stock,
         categoryId: product.categoryId,
         description: product.description,
-        imageUrl: product.imageUrl,
-        publishedYear: product.publishedYear,
+        imageUrl: primaryImageUrl,
+        imageUrls: formattedImageUrls,
+        images: formattedImages,
+        publishedYear: Number(product.publishedYear) || new Date().getFullYear(),
         status: product.status,
       }, {
         params: { bookId: id }
@@ -220,7 +279,9 @@ export const shopService = {
       const b = res.data.data;
       return {
         ...product,
-        id: b?.id || id,
+        id: b?.bookId || b?.id || id,
+        imageUrl: b?.imageUrl || primaryImageUrl || product.imageUrl,
+        images: b?.images || product.images,
       } as Book;
     } catch (error: any) {
       console.warn("updateProduct API error:", error);
@@ -238,6 +299,9 @@ export const shopService = {
 
   // 8. Ẩn/Xóa sách khỏi gian hàng (DeleteShopBook)
   async deleteProduct(id: string | number): Promise<boolean> {
+    if (!id || id === "undefined" || id === "null") {
+      throw new Error("Mã định danh sách không hợp lệ hoặc không tồn tại.");
+    }
     try {
       await apiClient.post("/shop/DeleteShopBook", null, {
         params: { bookId: id }
@@ -245,8 +309,18 @@ export const shopService = {
       return true;
     } catch (error: any) {
       console.warn("deleteProduct API error:", error);
+      if (error?.response?.status === 404) {
+        const errorMsg =
+          error?.response?.data?.message ||
+          error?.response?.data?.errors?.detail ||
+          "Không tìm thấy sách trên hệ thống hoặc sách không thuộc quyền quản lý của gian hàng này.";
+        throw new Error(String(errorMsg));
+      }
       const errorMsg =
         error?.response?.data?.errors?.detail ||
+        (typeof error?.response?.data?.errors === "object"
+          ? Object.values(error.response.data.errors).flat()[0]
+          : null) ||
         error?.response?.data?.message ||
         error?.message ||
         "Không thể xóa sách khỏi gian hàng.";
@@ -261,23 +335,36 @@ export const shopService = {
         params: { pageIndex: 1, pageSize: 50 }
       });
       const data = res.data.data;
-      const items = data.items || data || [];
-      return items.map((f: any) => ({
-        orderId: f.orderId,
-        feedback: {
-          id: f.id,
-          orderId: f.orderId,
-          bookId: f.bookId,
-          rating: f.rating,
-          content: f.comment || f.content,
-          type: "SHOP",
-          createdAt: f.createdAt,
-          customer: f.userFullName || "Khách hàng",
-          customerName: f.userFullName || "Khách hàng",
-          shopReply: f.shopResponse?.responseContent,
-          shopRepliedAt: f.shopResponse?.createdAt,
-        }
-      }));
+      const items = data?.items || data || [];
+      return items.map((f: any) => {
+        const fbId = f.feedbackId || f.id;
+        const ordId = f.orderId || f.orderDetailId || fbId;
+        const responseData = f.response || f.shopResponse;
+        return {
+          orderId: ordId,
+          feedback: {
+            id: fbId,
+            feedbackId: fbId,
+            orderId: ordId,
+            orderDetailId: f.orderDetailId,
+            bookId: f.bookId,
+            bookTitle: f.bookTitle || "Sách chính hãng BookVerse",
+            bookImageUrl: f.bookImageUrl,
+            bookPrice: f.bookPrice,
+            rating: f.rating ?? 5,
+            content: f.content || f.comment || "",
+            type: f.type || "BOOK",
+            imageUrl: f.imageUrl,
+            createdAt: f.createdAt,
+            customer: f.customerName || f.userFullName || "Khách hàng",
+            customerName: f.customerName || f.userFullName || "Khách hàng",
+            customerAvatar: f.customerAvatar,
+            shopReply: responseData?.content || responseData?.responseContent,
+            shopRepliedAt: responseData?.createdAt,
+            shopReplyImageUrl: responseData?.imageUrl,
+          }
+        };
+      });
     } catch (error) {
       console.warn("getShopFeedbacks API error, falling back to mock:", error);
       return INITIAL_ORDERS
@@ -290,17 +377,19 @@ export const shopService = {
   },
 
   // 10. Trả lời phản hồi đánh giá của khách (ReplyFeedback)
-  async replyFeedback(feedbackId: string | number, reply: string): Promise<boolean> {
+  async replyFeedback(feedbackId: string | number, reply: string, imageUrl?: string): Promise<boolean> {
     try {
       await apiClient.post("/shop/ReplyFeedback", {
-        responseContent: reply
+        feedbackId,
+        content: reply,
+        imageUrl: imageUrl || null
       }, {
         params: { feedbackId }
       });
       return true;
     } catch (error) {
-      console.warn("replyFeedback API error, falling back to mock:", error);
-      return true;
+      console.error("replyFeedback API error:", error);
+      throw error;
     }
   },
 

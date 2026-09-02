@@ -1,7 +1,7 @@
 import { apiClient } from "./api";
 import { User, AuthResponse, Role, Shop, ApiResponse } from "../types";
-import { DEMO_USERS, INITIAL_SHOPS } from "./mockData";
 import { setStoredToken, setStoredUser, removeStoredToken, getStoredUser } from "../utils/storage";
+import { DEMO_USERS } from "./mockData";
 
 export interface RegisterData {
   username?: string;
@@ -41,7 +41,7 @@ export const SEED_ACCOUNTS: Record<Role, { username: string; email: string; pass
     username: "shop_nhanam",
     email: "nhanam@bookverse.com",
     password: "Password123!",
-    name: "Nhã Nam Books Official",
+    name: "Lê Văn Cường (Nhã Nam Books Official)",
   },
   admin: {
     username: "admin",
@@ -135,13 +135,13 @@ export const authService = {
     const payload: RegisterData =
       typeof data === "string"
         ? {
-            name: data,
-            email: email || "",
-            role,
-            phone,
-            address,
-            password: password || "Password123!",
-          }
+          name: data,
+          email: email || "",
+          role,
+          phone,
+          address,
+          password: password || "Password123!",
+        }
         : data;
 
     const username = payload.username || payload.email.split("@")[0];
@@ -580,15 +580,15 @@ export const authService = {
     }
   },
 
-  logout(): void {
+  async logout(refreshToken?: string): Promise<void> {
     try {
-      // Gửi tín hiệu hủy session lên Backend nếu đang kết nối
-      apiClient.post("/user/Logout").catch(() => {});
-    } catch {
-      // Bỏ qua lỗi mạng khi logout
+      await apiClient.post("/user/Logout", {
+        refreshToken: refreshToken || undefined,
+      });
+    } catch (error) {
+      console.warn("[authService] Backend logout API error, proceeding with local cleanup:", error);
     } finally {
       removeStoredToken();
-      localStorage.removeItem("user");
     }
   },
 

@@ -1,5 +1,21 @@
 import React, { useState, useEffect } from "react";
-import { ArrowLeft, Star, ShoppingCart, Check, Plus, Minus, Store, MessageSquare, CornerDownRight, Flag } from "lucide-react";
+import {
+  ArrowLeft,
+  Star,
+  ShoppingCart,
+  Check,
+  Plus,
+  Minus,
+  Store,
+  MessageSquare,
+  CornerDownRight,
+  Flag,
+  Maximize2,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  BookOpen,
+} from "lucide-react";
 import { Book, Category, OrderFeedback } from "../../types";
 import { BookCover } from "../../components/common/BookCover";
 import { Btn } from "../../components/common/Btn";
@@ -13,7 +29,7 @@ import { ChatDrawer } from "../../components/chat/ChatDrawer";
 interface BookDetailPageProps {
   book: Book;
   onBack: () => void;
-  onSelectShop?: (shopId: number) => void;
+  onSelectShop?: (shopId: number | string) => void;
 }
 
 export const BookDetailPage: React.FC<BookDetailPageProps> = ({
@@ -21,16 +37,26 @@ export const BookDetailPage: React.FC<BookDetailPageProps> = ({
   onBack,
   onSelectShop,
 }) => {
+  const [currentBook, setCurrentBook] = useState<Book>(book);
   const [categories, setCategories] = useState<Category[]>([]);
   const [qty, setQty] = useState(1);
   const [added, setAdded] = useState(false);
   const [reviews, setReviews] = useState<OrderFeedback[]>([]);
   const [chatOpen, setChatOpen] = useState(false);
   const [reportedIds, setReportedIds] = useState<number[]>([]);
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const { addToCart } = useCart();
 
   useEffect(() => {
     bookService.getCategories().then(setCategories);
+    // Tải thông tin chi tiết đầy đủ của sách (kèm danh sách ảnh)
+    bookService.getBookById(book.id).then((detailed) => {
+      if (detailed) {
+        setCurrentBook(detailed);
+      }
+    });
+
     orderService.getOrders().then((orders) => {
       const revs: OrderFeedback[] = orders
         .filter((o) => o.feedback)
@@ -53,7 +79,7 @@ export const BookDetailPage: React.FC<BookDetailPageProps> = ({
   }, [book.id]);
 
   const handleAdd = () => {
-    addToCart(book, qty);
+    addToCart(currentBook, qty);
     setAdded(true);
     setTimeout(() => setAdded(false), 1800);
   };
@@ -63,43 +89,129 @@ export const BookDetailPage: React.FC<BookDetailPageProps> = ({
     setReportedIds((prev) => [...prev, orderId]);
   };
 
-  const categoryName = categories.find((c) => c.id === book.categoryId)?.name || "Sách";
+  const categoryName = categories.find((c) => c.id === currentBook.categoryId)?.name || "Sách";
+
+  // Tổng hợp danh sách tất cả các ảnh của sách (Bìa chính + Các trang đọc thử / Góc chụp)
+  const imageList = (currentBook.images && currentBook.images.length > 0)
+    ? currentBook.images
+    : currentBook.imageUrl
+    ? [{ imageUrl: currentBook.imageUrl, isCover: true, displayOrder: 0 }]
+    : [];
+
+  const activeImage = imageList[activeImageIndex] || imageList[0];
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-8">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
       <button
         onClick={onBack}
-        className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 mb-8 transition-colors font-medium cursor-pointer"
+        className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 mb-6 transition-colors font-medium cursor-pointer"
       >
         <ArrowLeft size={16} /> Quay lại
       </button>
 
       <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm flex flex-col md:flex-row gap-8">
-        <div className="shrink-0 flex justify-center md:justify-start">
-          <BookCover book={book} size="lg" />
+        {/* Left Column: Interactive Multi-Image Gallery */}
+        <div className="shrink-0 flex flex-col items-center md:items-start w-full md:w-80">
+          {imageList.length > 0 ? (
+            <div className="w-full flex flex-col items-center">
+              {/* Main Large Image Box */}
+              <div className="relative group w-full max-w-[280px] aspect-[3/4] rounded-2xl overflow-hidden border border-slate-200 bg-slate-50 shadow-md flex items-center justify-center">
+                <img
+                  src={activeImage.imageUrl}
+                  alt={currentBook.title}
+                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                />
+
+                {/* Badge Tag */}
+                <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                  {activeImage.isCover || activeImageIndex === 0 ? (
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-600 text-white text-[11px] font-bold shadow-xs flex items-center gap-1">
+                      <Star size={11} className="fill-current" /> Bìa chính
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-1 rounded-full bg-slate-900/80 text-white text-[11px] font-semibold backdrop-blur-xs shadow-xs flex items-center gap-1">
+                      <BookOpen size={11} /> Trang đọc thử #{activeImageIndex}
+                    </span>
+                  )}
+                </div>
+
+                {/* Counter Pill */}
+                <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full bg-black/60 text-white text-[10px] font-mono backdrop-blur-xs">
+                  {activeImageIndex + 1}/{imageList.length}
+                </div>
+
+                {/* Full-screen Zoom Click Overlay */}
+                <button
+                  type="button"
+                  onClick={() => setPreviewModalOpen(true)}
+                  className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white gap-2 font-medium text-xs cursor-pointer"
+                >
+                  <Maximize2 size={18} /> Phóng to xem trang đọc thử
+                </button>
+              </div>
+
+              {/* Thumbnail Gallery Strip */}
+              {imageList.length > 1 && (
+                <div className="mt-3.5 w-full max-w-[280px]">
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
+                    <span>Thư viện ảnh ({imageList.length})</span>
+                    <span className="text-[10px] text-blue-600 font-normal lowercase">Click để đổi ảnh</span>
+                  </p>
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1.5 scrollbar-thin">
+                    {imageList.map((img, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setActiveImageIndex(idx)}
+                        className={`relative shrink-0 w-14 h-18 rounded-xl overflow-hidden border-2 transition-all cursor-pointer bg-slate-100 ${
+                          activeImageIndex === idx
+                            ? "border-blue-600 ring-2 ring-blue-500/20 shadow-xs scale-105"
+                            : "border-slate-200 hover:border-slate-400 opacity-70 hover:opacity-100"
+                        }`}
+                      >
+                        <img
+                          src={img.imageUrl}
+                          alt={`Thumbnail ${idx + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                        <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[9px] text-center font-medium py-0.5 leading-none">
+                          {idx === 0 ? "Bìa" : `#${idx}`}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="w-full max-w-[280px]">
+              <BookCover book={currentBook} size="lg" />
+            </div>
+          )}
         </div>
 
+        {/* Right Column: Book Details & Actions */}
         <div className="flex-1 flex flex-col justify-between">
           <div>
             <div className="flex items-center gap-2 mb-2">
               <span className="text-xs font-bold text-blue-600 uppercase tracking-wider bg-blue-50 px-3 py-1 rounded-full">
                 {categoryName}
               </span>
-              {book.isbn && (
+              {currentBook.isbn && (
                 <span className="text-xs font-mono text-slate-400">
-                  ISBN: {book.isbn}
+                  ISBN: {currentBook.isbn}
                 </span>
               )}
             </div>
 
             <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 mb-2 leading-tight">
-              {book.title}
+              {currentBook.title}
             </h1>
             <p className="text-slate-600 text-sm font-medium mb-1">
-              Tác giả: <span className="text-slate-800 font-semibold">{book.author}</span>
+              Tác giả: <span className="text-slate-800 font-semibold">{currentBook.author}</span>
             </p>
             <p className="text-slate-400 text-xs mb-4">
-              Nhà xuất bản: {book.publisher}
+              Nhà xuất bản: {currentBook.publisher} • Năm XB: {currentBook.publishedYear || "Mới nhất"}
             </p>
 
             <div className="flex items-center gap-3 mb-5">
@@ -108,23 +220,23 @@ export const BookDetailPage: React.FC<BookDetailPageProps> = ({
                   <Star
                     key={s}
                     size={16}
-                    fill={s <= Math.round(book.rating) ? "#f59e0b" : "none"}
-                    stroke={s <= Math.round(book.rating) ? "none" : "#cbd5e1"}
+                    fill={s <= Math.round(currentBook.rating) ? "#f59e0b" : "none"}
+                    stroke={s <= Math.round(currentBook.rating) ? "none" : "#cbd5e1"}
                   />
                 ))}
               </div>
               <span className="text-sm font-bold text-slate-800">
-                {book.rating}
+                {currentBook.rating}
               </span>
               <span className="text-slate-400 text-xs">
-                ({book.reviewCount} lượt đánh giá)
+                ({currentBook.reviewCount} lượt đánh giá)
               </span>
             </div>
 
             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 mb-5">
               <p className="text-xs text-slate-400 mb-1">Giá bán niêm yết</p>
               <p className="text-3xl font-extrabold text-blue-600 tracking-tight">
-                {fmt(book.price)}
+                {fmt(currentBook.price)}
               </p>
             </div>
 
@@ -135,10 +247,10 @@ export const BookDetailPage: React.FC<BookDetailPageProps> = ({
                   <span>
                     Cung cấp bởi:{" "}
                     <button
-                      onClick={() => onSelectShop && onSelectShop(book.shopId)}
+                      onClick={() => onSelectShop && onSelectShop(currentBook.shopId)}
                       className="text-slate-800 font-bold hover:text-blue-600 underline cursor-pointer"
                     >
-                      {book.shopName}
+                      {currentBook.shopName}
                     </button>
                   </span>
                 </div>
@@ -154,8 +266,8 @@ export const BookDetailPage: React.FC<BookDetailPageProps> = ({
                 <span className="w-2 h-2 rounded-full bg-emerald-500" />
                 <span>
                   Tình trạng:{" "}
-                  <strong className={book.stock > 0 ? "text-emerald-600" : "text-red-500"}>
-                    {book.stock > 0 ? `Còn hàng (${book.stock} cuốn)` : "Hết hàng"}
+                  <strong className={currentBook.stock > 0 ? "text-emerald-600" : "text-red-500"}>
+                    {currentBook.stock > 0 ? `Còn hàng (${currentBook.stock} cuốn)` : "Hết hàng"}
                   </strong>
                 </span>
               </div>
@@ -286,10 +398,91 @@ export const BookDetailPage: React.FC<BookDetailPageProps> = ({
       <ChatDrawer
         isOpen={chatOpen}
         onClose={() => setChatOpen(false)}
-        shopId={book.shopId}
-        shopName={book.shopName}
-        book={book}
+        shopId={currentBook.shopId}
+        shopName={currentBook.shopName}
+        book={currentBook}
       />
+
+      {/* Full-Screen Image Zoom Modal */}
+      {previewModalOpen && activeImage && (
+        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4 animate-in fade-in duration-200">
+          {/* Header Controls */}
+          <div className="w-full max-w-4xl flex items-center justify-between text-white mb-3 px-2">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-sm sm:text-base text-slate-100">
+                {currentBook.title}
+              </span>
+              <span className="text-xs text-slate-400 font-mono">
+                ({activeImageIndex + 1}/{imageList.length} ảnh)
+              </span>
+            </div>
+            <button
+              onClick={() => setPreviewModalOpen(false)}
+              className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          {/* Large Image Preview with Navigation */}
+          <div className="relative max-w-3xl max-h-[75vh] flex items-center justify-center">
+            {imageList.length > 1 && (
+              <button
+                onClick={() =>
+                  setActiveImageIndex((prev) =>
+                    prev > 0 ? prev - 1 : imageList.length - 1
+                  )
+                }
+                className="absolute -left-12 p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer hidden sm:flex items-center justify-center"
+              >
+                <ChevronLeft size={24} />
+              </button>
+            )}
+
+            <img
+              src={activeImage.imageUrl}
+              alt="Ảnh phóng to"
+              className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-2xl border border-white/10"
+            />
+
+            {imageList.length > 1 && (
+              <button
+                onClick={() =>
+                  setActiveImageIndex((prev) =>
+                    prev < imageList.length - 1 ? prev + 1 : 0
+                  )
+                }
+                className="absolute -right-12 p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer hidden sm:flex items-center justify-center"
+              >
+                <ChevronRight size={24} />
+              </button>
+            )}
+          </div>
+
+          {/* Bottom Thumbnails Strip in Zoom Modal */}
+          {imageList.length > 1 && (
+            <div className="mt-4 flex items-center gap-2 overflow-x-auto max-w-xl p-2 bg-black/40 rounded-2xl border border-white/10 scrollbar-thin">
+              {imageList.map((img, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setActiveImageIndex(idx)}
+                  className={`relative w-12 h-16 rounded-lg overflow-hidden border transition-all cursor-pointer ${
+                    activeImageIndex === idx
+                      ? "border-emerald-400 ring-2 ring-emerald-400/40 scale-105"
+                      : "border-white/20 opacity-50 hover:opacity-100"
+                  }`}
+                >
+                  <img
+                    src={img.imageUrl}
+                    alt={`Thumb ${idx}`}
+                    className="w-full h-full object-cover"
+                  />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
