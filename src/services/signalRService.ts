@@ -104,6 +104,11 @@ class SignalRService {
     };
   }
 
+  // Alias tương thích ngược
+  public onMessageReceived(callback: (msg: any) => void): () => void {
+    return this.onReceiveMessage(callback);
+  }
+
   // Ngắt kết nối
   public async stopConnection(): Promise<void> {
     if (this.connection) {

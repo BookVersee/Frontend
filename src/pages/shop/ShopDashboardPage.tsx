@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   Package,
   BookOpen,
@@ -25,11 +25,40 @@ import {
   Loader2,
   AlertCircle,
   Star,
+  ChevronRight,
+  Info,
+  ExternalLink,
+  Tag,
+  Sparkles,
+  Filter,
+  ArrowRight,
+  CheckCheck,
+  Ticket,
+  Share2,
+  FileText,
+  ShieldAlert,
+  Copy,
+  ChevronDown,
+  Paperclip,
+  ArrowLeft,
+  GripVertical,
 } from "lucide-react";
 import { Order, Book, Category, OrderStatus, OrderFeedback, ChatMessage, BookImageDto, Shop } from "../../types";
 import { shopService } from "../../services/shopService";
 import { bookService } from "../../services/bookService";
-import { chatService, ChatThread } from "../../services/chatService";
+import {
+  chatService,
+  ChatThread,
+  isValidGuid,
+  cleanAndDeduplicateMessages,
+  SHOP_VOUCHERS,
+  parseVoucherFromMessage,
+  ShopVoucher,
+  formatProductCardText,
+  parseProductFromMessage,
+  cleanProductText,
+} from "../../services/chatService";
+import { VoucherTicket } from "../../components/chat/VoucherTicket";
 import { signalRService } from "../../services/signalRService";
 import { uploadService } from "../../services/uploadService";
 import { useAuth } from "../../contexts/AuthContext";
@@ -91,16 +120,142 @@ export const ShopDashboardPage: React.FC = () => {
   // Revenue filter period
   const [revenuePeriod, setRevenuePeriod] = useState<"day" | "month" | "year">("month");
 
-  // ==========================================
-  // REAL-TIME CHAT & MESSAGING STATE (SHOP)
+// REAL-TIME CHAT & MESSAGING STATE (SHOP)
   // ==========================================
   const [chatThreads, setChatThreads] = useState<ChatThread[]>([]);
   const [selectedThread, setSelectedThread] = useState<ChatThread | null>(null);
   const [threadMessages, setThreadMessages] = useState<ChatMessage[]>([]);
   const [shopReplyInput, setShopReplyInput] = useState("");
+  const [isSendingShopReply, setIsSendingShopReply] = useState(false);
   const [isRealTimeChatConnected, setIsRealTimeChatConnected] = useState(false);
   const [threadSearch, setThreadSearch] = useState("");
+  const [showCustomerSidebar, setShowCustomerSidebar] = useState(true);
+  const [chatFilter, setChatFilter] = useState<"all" | "unread" | "needs_reply" | "has_order">("all");
+  const [previewModalImage, setPreviewModalImage] = useState<string | null>(null);
+  const [showProductPickerModal, setShowProductPickerModal] = useState(false);
+  const [isLoadingPickerProducts, setIsLoadingPickerProducts] = useState(false);
+  const [productPickerSearch, setProductPickerSearch] = useState("");
+
+  const handleOpenProductPicker = async () => {
+    setShowProductPickerModal(true);
+    const activeId = currentShop?.id || user?.shopId || 1;
+    if (products.length === 0) {
+      setIsLoadingPickerProducts(true);
+      try {
+        const list = await shopService.getShopProducts(activeId);
+        setProducts(list);
+        setProductsLoaded(true);
+      } catch (err) {
+        console.warn("Load picker products error:", err);
+      } finally {
+        setIsLoadingPickerProducts(false);
+      }
+    }
+  };
+  const [customerNotes, setCustomerNotes] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem("bookverse_shop_customer_notes");
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [activeNoteText, setActiveNoteText] = useState("");
+  const [isSavingNote, setIsSavingNote] = useState(false);
+  const [isUploadingChatImage, setIsUploadingChatImage] = useState(false);
+  const chatFileInputRef = useRef<HTMLInputElement>(null);
   const chatMessagesEndRef = useRef<HTMLDivElement>(null);
+
+  // RESPONSIVE & DRAGGABLE SPLITTERS STATE (SHOP CHAT)
+  // ==================================================
+  const [col1Width, setCol1Width] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem("bookverse_shop_chat_col1_w");
+      return saved ? Math.max(220, Math.min(480, Number(saved))) : 320;
+    } catch {
+      return 320;
+    }
+  });
+  const [col3Width, setCol3Width] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem("bookverse_shop_chat_col3_w");
+      return saved ? Math.max(260, Math.min(520, Number(saved))) : 320;
+    } catch {
+      return 320;
+    }
+  });
+  const [isDraggingCol1, setIsDraggingCol1] = useState(false);
+  const [isDraggingCol3, setIsDraggingCol3] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth >= 1024 : true
+  );
+  const [mobileChatView, setMobileChatView] = useState<"list" | "chat">("list");
+  const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // Lắng nghe thay đổi kích thước màn hình
+  useEffect(() => {
+    const handleResize = () => {
+      setIsDesktop(window.innerWidth >= 1024);
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // Xử lý kéo chuột điều chỉnh độ rộng cột trên Web (Draggable Resizers)
+  useEffect(() => {
+    if (!isDraggingCol1 && !isDraggingCol3) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!chatContainerRef.current) return;
+      const rect = chatContainerRef.current.getBoundingClientRect();
+
+      if (isDraggingCol1) {
+        const newW = Math.max(220, Math.min(480, e.clientX - rect.left));
+        setCol1Width(newW);
+      } else if (isDraggingCol3) {
+        const newW = Math.max(260, Math.min(520, rect.right - e.clientX));
+        setCol3Width(newW);
+      }
+    };
+
+    const handleMouseUp = () => {
+      if (isDraggingCol1) {
+        setIsDraggingCol1(false);
+        try {
+          localStorage.setItem("bookverse_shop_chat_col1_w", String(col1Width));
+        } catch {}
+      }
+      if (isDraggingCol3) {
+        setIsDraggingCol3(false);
+        try {
+          localStorage.setItem("bookverse_shop_chat_col3_w", String(col3Width));
+        } catch {}
+      }
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+  }, [isDraggingCol1, isDraggingCol3, col1Width, col3Width]);
+
+  // Trạng thái lazy loading theo Tab
+  const [productsLoaded, setProductsLoaded] = useState(false);
+  const [feedbacksLoaded, setFeedbacksLoaded] = useState(false);
+  const [chatsLoaded, setChatsLoaded] = useState(false);
+  const [tabLoading, setTabLoading] = useState(false);
+  const [realtimeNewChatCount, setRealtimeNewChatCount] = useState(0);
 
   const loadData = async () => {
     setLoading(true);
@@ -111,23 +266,15 @@ export const ShopDashboardPage: React.FC = () => {
       }
       const activeId = profile?.id || user?.shopId || 1;
 
-      const [ordersData, productsData, feedbacksData, threadsData, categoriesData] = await Promise.all([
+      // Chỉ tải đơn hàng và danh mục cho màn hình mặc định ban đầu
+      const [ordersData, categoriesData] = await Promise.all([
         shopService.getShopOrders(activeId),
-        shopService.getShopProducts(activeId),
-        shopService.getShopFeedbacks(activeId),
-        chatService.getShopConversations(activeId),
         bookService.getCategories(),
       ]);
       setOrders(ordersData);
-      setProducts(productsData);
-      setFeedbacks(feedbacksData);
-      setChatThreads(threadsData);
       setCategories(categoriesData);
       if (categoriesData.length > 0 && !categoryId) {
         setCategoryId(categoriesData[0].id);
-      }
-      if (threadsData.length > 0 && !selectedThread) {
-        setSelectedThread(threadsData[0]);
       }
     } finally {
       setLoading(false);
@@ -137,6 +284,42 @@ export const ShopDashboardPage: React.FC = () => {
   useEffect(() => {
     loadData();
   }, [user?.id]);
+
+  // Lazy-load dữ liệu khi người dùng chuyển Tab
+  useEffect(() => {
+    const activeId = currentShop?.id || user?.shopId || 1;
+    if (tab === "products" && !productsLoaded) {
+      setTabLoading(true);
+      shopService.getShopProducts(activeId)
+        .then((data) => {
+          setProducts(data);
+          setProductsLoaded(true);
+        })
+        .finally(() => setTabLoading(false));
+    } else if (tab === "feedbacks" && !feedbacksLoaded) {
+      setTabLoading(true);
+      shopService.getShopFeedbacks(activeId)
+        .then((data) => {
+          setFeedbacks(data);
+          setFeedbacksLoaded(true);
+        })
+        .finally(() => setTabLoading(false));
+    } else if (tab === "chat") {
+      setRealtimeNewChatCount(0);
+      if (!chatsLoaded) {
+        setTabLoading(true);
+        chatService.getShopConversations(activeId)
+          .then((data) => {
+            setChatThreads(data);
+            setChatsLoaded(true);
+            if (data.length > 0 && !selectedThread) {
+              setSelectedThread(data[0]);
+            }
+          })
+          .finally(() => setTabLoading(false));
+      }
+    }
+  }, [tab, currentShop?.id, user?.shopId, productsLoaded, feedbacksLoaded, chatsLoaded]);
 
   // Khởi tạo kết nối SignalR cho Shop Dashboard
   useEffect(() => {
@@ -150,6 +333,13 @@ export const ShopDashboardPage: React.FC = () => {
 
     const unsubscribe = signalRService.onReceiveMessage((incomingMsg: any) => {
       if (!isMounted) return;
+
+      const isFromCustomer = incomingMsg.senderId !== String(shopId);
+
+      // Nếu đang không ở tab chat, tăng badge tin nhắn mới realtime
+      if (tab !== "chat" && isFromCustomer) {
+        setRealtimeNewChatCount((c) => c + 1);
+      }
 
       const formatted: ChatMessage = {
         id: incomingMsg.messageId || incomingMsg.id || Date.now(),
@@ -166,7 +356,7 @@ export const ShopDashboardPage: React.FC = () => {
             hour: "2-digit",
             minute: "2-digit",
           }),
-        isFromCustomer: incomingMsg.senderId !== String(shopId),
+        isFromCustomer,
         senderName: incomingMsg.senderName,
         imageUrl: incomingMsg.imageUrl,
       };
@@ -209,7 +399,7 @@ export const ShopDashboardPage: React.FC = () => {
       unsubscribe();
       window.removeEventListener("bookverse_chat_updated", handleLocalUpdate);
     };
-  }, [shopId, selectedThread?.chatId]);
+  }, [shopId, selectedThread?.chatId, tab]);
 
   // Khi chọn một khách hàng từ danh sách hội thoại
   useEffect(() => {
@@ -235,23 +425,187 @@ export const ShopDashboardPage: React.FC = () => {
     chatMessagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [threadMessages]);
 
+  useEffect(() => {
+    if (tab === "chat") {
+      document.body.style.overflow = "hidden";
+      document.documentElement.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+      document.documentElement.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+      document.documentElement.style.overflow = "";
+    };
+  }, [tab]);
+
+    // Lưu ghi chú nội bộ của Shop về khách hàng
+  const handleSaveCustomerNote = () => {
+    if (!selectedThread) return;
+    setIsSavingNote(true);
+    const updated = { ...customerNotes, [String(selectedThread.userId)]: activeNoteText.trim() };
+    setCustomerNotes(updated);
+    try {
+      localStorage.setItem("bookverse_shop_customer_notes", JSON.stringify(updated));
+    } catch (e) {
+      console.warn("Error saving customer note:", e);
+    }
+    setTimeout(() => setIsSavingNote(false), 500);
+  };
+
+  // Gửi thẻ sản phẩm trực tiếp vào khung chat
+  const handleSendProductCard = async (book: Book) => {
+    if (!selectedThread || isSendingShopReply) return;
+    setIsSendingShopReply(true);
+    try {
+      const productCardText = formatProductCardText(book);
+      const res = await chatService.sendMessage({
+        chatId: isValidGuid(selectedThread.chatId) ? selectedThread.chatId : undefined,
+        senderId: shopId,
+        receiverId: selectedThread.userId,
+        shopId,
+        text: productCardText,
+        imageUrl: book.imageUrl,
+        isFromCustomer: false,
+        senderName: shopName,
+        messageType: "product_card",
+        productData: {
+          id: book.id,
+          title: book.title,
+          price: book.price,
+          originalPrice: book.originalPrice,
+          imageUrl: book.imageUrl,
+          stock: book.stock,
+        },
+      });
+      setThreadMessages((prev) => cleanAndDeduplicateMessages([...prev, res.message]));
+      setShowProductPickerModal(false);
+    } catch (err) {
+      console.warn("Send product card error:", err);
+    } finally {
+      setIsSendingShopReply(false);
+    }
+  };
+
+  // Gửi thẻ đơn hàng vào chat để hai bên cùng đối soát
+  const handleSendOrderCard = async (ord: Order) => {
+    if (!selectedThread || isSendingShopReply) return;
+    setIsSendingShopReply(true);
+    try {
+      const res = await chatService.sendMessage({
+        chatId: isValidGuid(selectedThread.chatId) ? selectedThread.chatId : undefined,
+        senderId: shopId,
+        receiverId: selectedThread.userId,
+        shopId,
+        text: `Thông tin đơn hàng #${formatShortOrderId(ord.id)} của bạn`,
+        isFromCustomer: false,
+        senderName: shopName,
+        messageType: "order_card",
+        orderData: {
+          orderId: ord.id,
+          orderStatus: ord.orderStatus,
+          totalAmount: ord.totalAmount,
+          itemCount: ord.items?.length || 1,
+        },
+      });
+      setThreadMessages((prev) => cleanAndDeduplicateMessages([...prev, res.message]));
+    } catch (err) {
+      console.warn("Send order card error:", err);
+    } finally {
+      setIsSendingShopReply(false);
+    }
+  };
+
+  // Tặng voucher giảm giá vào chat cho khách chốt đơn
+  const handleSendVoucher = async (voucher: ShopVoucher) => {
+    if (!selectedThread || isSendingShopReply) return;
+    setIsSendingShopReply(true);
+    try {
+      const res = await chatService.sendMessage({
+        chatId: isValidGuid(selectedThread.chatId) ? selectedThread.chatId : undefined,
+        senderId: shopId,
+        receiverId: selectedThread.userId,
+        shopId,
+        text: `[VOUCHER:${voucher.code}:${voucher.discount}:${voucher.minSpend}:${voucher.label}]`,
+        isFromCustomer: false,
+        senderName: shopName,
+        messageType: "voucher_card",
+        voucherData: {
+          code: voucher.code,
+          discountAmount: voucher.discount,
+          minSpend: voucher.minSpend,
+        },
+      });
+      setThreadMessages((prev) => cleanAndDeduplicateMessages([...prev, res.message]));
+      window.dispatchEvent(new Event("bookverse_chat_updated"));
+    } catch (err) {
+      console.warn("Send voucher error:", err);
+    } finally {
+      setIsSendingShopReply(false);
+    }
+  };
+
+  // Tải lên và gửi ảnh chụp thật của sách cho khách
+  const handleUploadChatImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedThread || isSendingShopReply) return;
+    setIsUploadingChatImage(true);
+    setIsSendingShopReply(true);
+    try {
+      // 1. Upload ảnh và trích xuất đúng chuỗi URL string
+      const uploadRes = await uploadService.uploadImage(file);
+      const imageUrlString = uploadRes?.url || "";
+
+      if (!imageUrlString) {
+        throw new Error("Không nhận được link ảnh từ hệ thống tải tệp.");
+      }
+
+      const res = await chatService.sendMessage({
+        chatId: isValidGuid(selectedThread.chatId) ? selectedThread.chatId : undefined,
+        senderId: shopId,
+        receiverId: selectedThread.userId,
+        shopId,
+        text: "Shop gửi bạn ảnh chụp thực tế của sách",
+        isFromCustomer: false,
+        senderName: shopName,
+        imageUrl: imageUrlString,
+        messageType: "image",
+      });
+      const safeMsg = {
+        ...res.message,
+        text: res.message.text || "Shop gửi bạn ảnh chụp thực tế của sách",
+      };
+      setThreadMessages((prev) => cleanAndDeduplicateMessages([...prev, safeMsg]));
+      window.dispatchEvent(new Event("bookverse_chat_updated"));
+    } catch (err) {
+      console.warn("Upload chat image error:", err);
+    } finally {
+      setIsUploadingChatImage(false);
+      setIsSendingShopReply(false);
+      if (chatFileInputRef.current) chatFileInputRef.current.value = "";
+    }
+  };
+
   const handleSelectThread = (t: ChatThread) => {
     if (selectedThread?.chatId) {
       signalRService.leaveChatRoom(selectedThread.chatId);
     }
     setSelectedThread(t);
+    setActiveNoteText(customerNotes[String(t.userId)] || "");
+    setMobileChatView("chat");
   };
 
   const handleSendShopReply = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!shopReplyInput.trim() || !selectedThread) return;
+    if (!shopReplyInput.trim() || !selectedThread || isSendingShopReply) return;
 
     const textToSend = shopReplyInput.trim();
     setShopReplyInput("");
+    setIsSendingShopReply(true);
 
     try {
       const res = await chatService.sendMessage({
-        chatId: selectedThread.chatId,
+        chatId: isValidGuid(selectedThread.chatId) ? selectedThread.chatId : undefined,
         senderId: shopId,
         receiverId: selectedThread.userId,
         shopId,
@@ -260,7 +614,18 @@ export const ShopDashboardPage: React.FC = () => {
         senderName: shopName,
       });
 
-      setThreadMessages((prev) => [...prev, res.message]);
+      // Khử trùng lặp tin nhắn trên giao diện
+      setThreadMessages((prev) => {
+        const isDuplicate = prev.some(
+          (m) =>
+            m.id === res.message.id ||
+            (m.text === res.message.text &&
+              String(m.senderId) === String(res.message.senderId) &&
+              Math.abs(Number(m.id) - Number(res.message.id)) < 3000)
+        );
+        if (isDuplicate) return prev;
+        return [...prev, res.message];
+      });
 
       setChatThreads((prev) =>
         prev.map((t) =>
@@ -269,12 +634,17 @@ export const ShopDashboardPage: React.FC = () => {
             : t
         )
       );
+      window.dispatchEvent(new Event("bookverse_chat_updated"));
     } catch (err) {
       console.warn("Error sending shop reply:", err);
+    } finally {
+      setIsSendingShopReply(false);
     }
   };
 
-  const totalUnreadChats = chatThreads.reduce((s, t) => s + (t.unreadCount || 0), 0);
+  const needsReplyCount = chatThreads.filter((t) => t.needsReply || (t.unreadCount || 0) > 0).length;
+  const totalUnreadChats =
+    chatThreads.reduce((s, t) => s + (t.unreadCount || 0), 0) + realtimeNewChatCount;
 
   const handleUpdateStatus = async (orderId: number, nextStatus: OrderStatus) => {
     await shopService.updateOrderStatus(orderId, nextStatus);
@@ -560,8 +930,8 @@ export const ShopDashboardPage: React.FC = () => {
 
   const filteredProducts = products.filter((p) => {
     const matchSearch = productSearch
-      ? p.title.toLowerCase().includes(productSearch.toLowerCase()) ||
-      p.author.toLowerCase().includes(productSearch.toLowerCase())
+      ? (p.title || "").toLowerCase().includes(productSearch.toLowerCase()) ||
+        (p.author || "").toLowerCase().includes(productSearch.toLowerCase())
       : true;
     if (!matchSearch) return false;
 
@@ -571,42 +941,353 @@ export const ShopDashboardPage: React.FC = () => {
     return true;
   });
 
-  const filteredChatThreads = chatThreads.filter((t) =>
-    threadSearch
-      ? t.userName.toLowerCase().includes(threadSearch.toLowerCase()) ||
-      (t.lastMessage && t.lastMessage.toLowerCase().includes(threadSearch.toLowerCase()))
-      : true
-  );
+  // Bộ câu trả lời mẫu chuẩn Shopee Seller
+  const QUICK_REPLIES = [
+    { label: "📦 Còn hàng", text: "Dạ chào bạn, cuốn sách này bên shop hiện vẫn còn hàng và là bản mới 100% chính hãng ạ!" },
+    { label: "🚚 Giao nhanh", text: "Dạ shop sẽ bọc chống sốc cẩn thận và gửi shipper ngay hôm nay bạn nhé!" },
+    { label: "🎁 Quà tặng", text: "Dạ sách có kèm bookmark chính hãng và màng co bảo vệ của NXB bạn nhé!" },
+    { label: "💬 Hỗ trợ thêm", text: "Dạ bạn cần shop tư vấn thêm về nội dung hay hình ảnh thật của cuốn sách này không ạ?" },
+    { label: "🏷️ Voucher 10k", text: "Dạ shop gửi tặng bạn voucher giảm 10.000đ khi đặt mua cuốn sách này nhé!" },
+  ];
+
+  // Danh sách đơn hàng của khách hàng đang chat
+  const selectedCustomerOrders = useMemo(() => {
+    if (!selectedThread) return [];
+    const targetName = (selectedThread.userName || "").toLowerCase().trim();
+    const targetUserId = String(selectedThread.userId);
+    return orders.filter(
+      (o) =>
+        (o.customerName && o.customerName.toLowerCase().trim() === targetName) ||
+        (o.customerId && String(o.customerId) === targetUserId)
+    );
+  }, [selectedThread, orders]);
+
+  // Cuốn sách mà khách đang hỏi (dựa trên tin nhắn hoặc sản phẩm của shop)
+  const relatedBook = useMemo(() => {
+    if (!selectedThread || products.length === 0) return null;
+    const allText = threadMessages
+      .map((m) => (m.text || "").toLowerCase())
+      .join(" ");
+    const matched = products.find(
+      (b) => b.title && allText.includes(b.title.toLowerCase())
+    );
+    return matched || products[0] || null;
+  }, [selectedThread, products, threadMessages]);
+
+  const filteredChatThreads = chatThreads.filter((t) => {
+    const matchSearch = threadSearch
+      ? (t.userName || "").toLowerCase().includes(threadSearch.toLowerCase()) ||
+        (t.lastMessage && t.lastMessage.toLowerCase().includes(threadSearch.toLowerCase()))
+      : true;
+
+    if (!matchSearch) return false;
+
+    if (chatFilter === "unread") {
+      return (t.unreadCount || 0) > 0;
+    }
+    if (chatFilter === "needs_reply") {
+      return t.needsReply === true || (t.unreadCount || 0) > 0;
+    }
+    if (chatFilter === "has_order") {
+      const targetName = (t.userName || "").toLowerCase().trim();
+      const targetUserId = String(t.userId);
+      return orders.some(
+        (o) =>
+          (o.customerName && o.customerName.toLowerCase().trim() === targetName) ||
+          (o.customerId && String(o.customerId) === targetUserId)
+      );
+    }
+    return true;
+  });
 
   const revenue = orders
     .filter((o) => o.orderStatus === "DELIVERED")
     .reduce((s, o) => s + o.totalAmount, 0);
   const pendingCount = orders.filter((o) => o.orderStatus === "PENDING").length;
 
+  const formatChatTime = (dateStr?: string): string => {
+    if (!dateStr) return "";
+    if (dateStr === "Vừa xong") return dateStr;
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      const now = new Date();
+      const isToday = d.toDateString() === now.toDateString();
+      if (isToday) {
+        return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+      }
+      return `${d.getDate().toString().padStart(2, "0")}/${(d.getMonth() + 1).toString().padStart(2, "0")}`;
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const formatShortOrderId = (id: string | number): string => {
+    const str = String(id);
+    if (str.length <= 10) return `#${str}`;
+    return `#${str.slice(-8).toUpperCase()}`;
+  };
+
+  // Helper render nội dung Hồ sơ & Đơn hàng khách hàng (dùng chung cho cả Desktop Panel & Mobile Drawer)
+  const renderCustomerProfileContent = (onClose?: () => void) => {
+    if (!selectedThread) return null;
+
+    return (
+      <div className="flex flex-col h-full bg-slate-50/50">
+        {/* Header Cột 3 */}
+        <div className="p-3.5 border-b border-slate-200 bg-white flex items-center justify-between shrink-0 shadow-2xs">
+          <h4 className="font-bold text-slate-800 text-xs flex items-center gap-1.5 uppercase tracking-wider">
+            <ShoppingBag size={14} className="text-emerald-600" />
+            Hồ sơ & Đơn hàng của khách
+          </h4>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              title="Đóng bảng thông tin"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
+
+        {/* Vùng nội dung Cột 3 - Cuộn độc lập */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* 1. Thẻ thông tin khách hàng chuyên sâu */}
+          <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs text-center">
+            <div className="relative w-14 h-14 mx-auto mb-2">
+              {selectedThread.userAvatar ? (
+                <img
+                  src={selectedThread.userAvatar}
+                  alt={selectedThread.userName}
+                  className="w-14 h-14 rounded-full object-cover border-2 border-emerald-500 shadow-sm"
+                />
+              ) : (
+                <div className="w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center font-bold text-lg shadow-sm uppercase">
+                  {(selectedThread.userName?.trim() || "K").charAt(0) || "K"}
+                </div>
+              )}
+              <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white" />
+            </div>
+            <h4 className="font-bold text-slate-800 text-sm">
+              {selectedThread.userName?.trim() || "Khách hàng"}
+            </h4>
+            <div className="flex items-center justify-center gap-1 mt-1">
+              <span className="text-[10px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
+                Khách hàng BookVerse
+              </span>
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                ⭐ Tỷ lệ nhận: 100%
+              </span>
+            </div>
+
+            {/* Địa chỉ giao hàng mặc định */}
+            {selectedCustomerOrders[0]?.shippingAddress && (
+              <p className="text-[10px] text-slate-500 mt-2 text-left bg-slate-50 p-2 rounded-lg border border-slate-100 truncate">
+                📍 Giao đến: {selectedCustomerOrders[0].shippingAddress}
+              </p>
+            )}
+
+            <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-slate-100 text-left">
+              <div>
+                <span className="text-[10px] text-slate-400 block">Đơn tại Shop</span>
+                <span className="font-extrabold text-slate-700 text-xs">
+                  {selectedCustomerOrders.length} đơn
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-slate-400 block">Tổng chi tiêu</span>
+                <span className="font-extrabold text-emerald-700 text-xs">
+                  {fmt(selectedCustomerOrders.reduce((s, o) => s + o.totalAmount, 0))}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 2. Kho Voucher khuyến mãi của Shop (Voucher Center) */}
+          <div className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-2xs">
+            <div className="flex items-center justify-between mb-2">
+              <h5 className="font-bold text-slate-700 text-xs flex items-center gap-1">
+                <Ticket size={13} className="text-amber-600" />
+                Kho Voucher của Shop
+              </h5>
+            </div>
+            <div className="space-y-2">
+              {SHOP_VOUCHERS.map((v) => (
+                <div
+                  key={v.code}
+                  className="flex items-center justify-between p-2 rounded-xl bg-amber-50/60 border border-amber-200/80 text-xs"
+                >
+                  <div className="min-w-0">
+                    <span className="font-bold text-amber-900 font-mono block">
+                      {v.code}
+                    </span>
+                    <span className="text-[10px] text-amber-700 block">
+                      {v.label} (đơn từ {fmt(v.minSpend)})
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleSendVoucher(v);
+                      if (!isDesktop) {
+                        setMobileProfileOpen(false);
+                      }
+                    }}
+                    className="px-2 py-1 bg-amber-600 text-white rounded-lg text-[10px] font-bold hover:bg-amber-700 transition-colors shrink-0 shadow-2xs cursor-pointer"
+                  >
+                    Tặng ngay
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 3. Danh sách đơn hàng gần đây của khách tại Shop kèm nút Share */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h5 className="font-bold text-slate-700 text-xs flex items-center gap-1">
+                <Package size={13} className="text-slate-500" />
+                Đơn hàng của khách ({selectedCustomerOrders.length})
+              </h5>
+            </div>
+
+            {selectedCustomerOrders.length === 0 ? (
+              <div className="bg-white rounded-2xl p-4 border border-dashed border-slate-200 text-center text-xs text-slate-400">
+                <ShoppingBag size={24} className="mx-auto text-slate-300 mb-1" />
+                Khách hàng chưa có đơn hàng nào tại Shop.
+                <p className="text-[11px] text-emerald-600 font-medium mt-1">
+                  Hãy tặng voucher để kích thích chốt đơn đầu tiên!
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {selectedCustomerOrders.map((ord) => {
+                  const statusBadge = orderStatusInfo[ord.orderStatus] || {
+                    label: ord.orderStatus,
+                    color: "bg-slate-100 text-slate-700 border-slate-200",
+                  };
+
+                  return (
+                    <div
+                      key={ord.id}
+                      className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-2xs hover:border-emerald-300 transition-all"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span
+                          className="font-extrabold text-xs text-slate-800 font-mono tracking-tight"
+                          title={`Mã đơn đầy đủ: #${ord.id}`}
+                        >
+                          {formatShortOrderId(ord.id)}
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusBadge.color}`}
+                        >
+                          {statusBadge.label}
+                        </span>
+                      </div>
+
+                      {/* Danh sách sách trong đơn */}
+                      <div className="space-y-1.5 py-1.5 border-y border-slate-100">
+                        {ord.items.map((item: any, idx) => {
+                          const bookTitle = item.book?.title || item.bookTitle || item.title || "Tựa sách đặt mua";
+                          return (
+                            <div
+                              key={idx}
+                              className="flex items-center justify-between text-[11px] gap-2"
+                            >
+                              <span className="truncate text-slate-700 font-medium flex-1" title={bookTitle}>
+                                • {bookTitle}
+                              </span>
+                              <span className="text-slate-500 shrink-0 font-mono font-semibold">
+                                x{item.quantity}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="flex items-center justify-between mt-2 pt-1 text-xs">
+                        <span className="font-extrabold text-emerald-700">
+                          {fmt(ord.totalAmount)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleSendOrderCard(ord);
+                            if (!isDesktop) {
+                              setMobileProfileOpen(false);
+                            }
+                          }}
+                          className="px-2 py-0.5 text-[10px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-600 hover:text-white transition-all shadow-2xs cursor-pointer flex items-center gap-1"
+                          title="Gửi thông tin đơn này vào chat"
+                        >
+                          <Share2 size={11} /> Gửi vào chat
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* 4. Ghi chú nội bộ của Shop về khách hàng (Shop Notes) */}
+          <div className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-2xs">
+            <h5 className="font-bold text-slate-700 text-xs flex items-center gap-1 mb-1.5">
+              <FileText size={13} className="text-slate-500" />
+              Ghi chú nội bộ (Chỉ Shop nhìn thấy)
+            </h5>
+            <textarea
+              value={activeNoteText}
+              onChange={(e) => setActiveNoteText(e.target.value)}
+              placeholder="Ví dụ: Khách thích bọc bìa kỹ, khách hay sưu tầm sách cổ điển..."
+              rows={2}
+              className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-emerald-500"
+            />
+            <div className="flex justify-end mt-1.5">
+              <button
+                type="button"
+                disabled={isSavingNote}
+                onClick={handleSaveCustomerNote}
+                className="px-2.5 py-1 bg-slate-800 text-white rounded-lg text-[10px] font-bold hover:bg-slate-900 transition-colors cursor-pointer shadow-2xs"
+              >
+                {isSavingNote ? "Đang lưu..." : "Lưu ghi chú"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8">
+    <div className={`${tab === "chat" ? "w-full max-w-[1700px] h-[calc(100dvh-64px)] flex flex-col overflow-hidden px-2 sm:px-4 lg:px-6 pt-1 sm:pt-2 pb-1 sm:pb-2" : "max-w-5xl mx-auto px-4 sm:px-6 py-8"} mx-auto transition-all duration-200`}>
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
-        <div>
+      <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 ${tab === "chat" ? "mb-1.5 sm:mb-2 shrink-0" : "mb-8"}`}>
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">
+            <h1 className="text-lg sm:text-2xl font-extrabold text-slate-800 tracking-tight truncate">
               {shopName}
             </h1>
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+            <span className="text-[10px] sm:text-xs font-semibold px-2 sm:px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 shrink-0">
               Đối tác xác thực
             </span>
           </div>
-          <p className="text-slate-500 text-xs sm:text-sm mt-0.5">
+          <p className="text-slate-500 text-[11px] sm:text-sm mt-0.5 truncate">
             Cổng quản trị nhà cung cấp sách BookVerse
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Thanh tab trượt ngang mềm mại trên Mobile & Desktop */}
+        <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto scrollbar-none pb-0.5 shrink-0 max-w-full">
           <Btn
             onClick={() => setTab("orders")}
             variant={tab === "orders" ? "primary" : "outline"}
             size="sm"
             color="#047857"
+            className="shrink-0 text-xs py-1.5"
           >
             <Package size={14} /> Đơn hàng ({orders.length})
           </Btn>
@@ -615,23 +1296,25 @@ export const ShopDashboardPage: React.FC = () => {
             variant={tab === "products" ? "primary" : "outline"}
             size="sm"
             color="#047857"
+            className="shrink-0 text-xs py-1.5"
           >
-            <BookOpen size={14} /> Kho sách ({activeProducts.length})
+            <BookOpen size={14} /> Kho sách ({activeProducts.length > 0 ? activeProducts.length : (currentShop?.bookCount ?? 0)})
           </Btn>
           <Btn
             onClick={() => setTab("feedbacks")}
             variant={tab === "feedbacks" ? "primary" : "outline"}
             size="sm"
             color="#047857"
+            className="shrink-0 text-xs py-1.5"
           >
-            <MessageSquare size={14} /> Đánh giá ({feedbacks.length})
+            <MessageSquare size={14} /> Đánh giá ({feedbacks.length > 0 ? feedbacks.length : (currentShop?.reviewCount ?? 0)})
           </Btn>
           <Btn
             onClick={() => setTab("chat")}
             variant={tab === "chat" ? "primary" : "outline"}
             size="sm"
             color="#047857"
-            className="relative"
+            className="shrink-0 relative text-xs py-1.5"
           >
             <MessageSquare size={14} /> Hộp thư tư vấn
             {totalUnreadChats > 0 && (
@@ -644,7 +1327,8 @@ export const ShopDashboardPage: React.FC = () => {
       </div>
 
       {/* Stats Summary */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      {tab !== "chat" && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <StatCard
           label="Doanh thu thực nhận"
           value={fmt(revenue)}
@@ -668,12 +1352,13 @@ export const ShopDashboardPage: React.FC = () => {
         />
         <StatCard
           label="Tổng đầu sách"
-          value={String(activeProducts.length)}
+          value={String(activeProducts.length > 0 ? activeProducts.length : (currentShop?.bookCount ?? 0))}
           sub="Đang kinh doanh"
           icon={<BookOpen size={22} />}
           color="#6d28d9"
         />
       </div>
+      )}
 
       {/* TAB 1: ORDERS */}
       {tab === "orders" && (
@@ -818,8 +1503,8 @@ export const ShopDashboardPage: React.FC = () => {
             <button
               onClick={() => setProductStatusFilter("ACTIVE")}
               className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${productStatusFilter === "ACTIVE"
-                  ? "bg-emerald-600 text-white shadow-xs"
-                  : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                ? "bg-emerald-600 text-white shadow-xs"
+                : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
                 }`}
             >
               Đang kinh doanh ({activeProducts.length})
@@ -827,8 +1512,8 @@ export const ShopDashboardPage: React.FC = () => {
             <button
               onClick={() => setProductStatusFilter("OUT_OF_STOCK")}
               className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${productStatusFilter === "OUT_OF_STOCK"
-                  ? "bg-amber-600 text-white shadow-xs"
-                  : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                ? "bg-amber-600 text-white shadow-xs"
+                : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
                 }`}
             >
               Hết hàng ({outOfStockProducts.length})
@@ -836,8 +1521,8 @@ export const ShopDashboardPage: React.FC = () => {
             <button
               onClick={() => setProductStatusFilter("HIDDEN")}
               className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${productStatusFilter === "HIDDEN"
-                  ? "bg-slate-700 text-white shadow-xs"
-                  : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                ? "bg-slate-700 text-white shadow-xs"
+                : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
                 }`}
             >
               Đã ẩn ({hiddenProducts.length})
@@ -845,8 +1530,8 @@ export const ShopDashboardPage: React.FC = () => {
             <button
               onClick={() => setProductStatusFilter("ALL")}
               className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${productStatusFilter === "ALL"
-                  ? "bg-slate-900 text-white shadow-xs"
-                  : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
+                ? "bg-slate-900 text-white shadow-xs"
+                : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100"
                 }`}
             >
               Tất cả ({products.length})
@@ -854,7 +1539,12 @@ export const ShopDashboardPage: React.FC = () => {
           </div>
 
           <div className="divide-y divide-slate-100">
-            {filteredProducts.length === 0 ? (
+            {tabLoading && products.length === 0 ? (
+              <div className="text-center py-16 px-4">
+                <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                <p className="text-xs text-slate-500 font-medium">Đang tải kho sách của gian hàng...</p>
+              </div>
+            ) : filteredProducts.length === 0 ? (
               <div className="text-center py-16 px-4">
                 <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3 shadow-xs">
                   <BookOpen size={26} />
@@ -976,7 +1666,12 @@ export const ShopDashboardPage: React.FC = () => {
           </div>
 
           <div className="divide-y divide-slate-100 p-6 space-y-4">
-            {feedbacks.length === 0 ? (
+            {tabLoading && feedbacks.length === 0 ? (
+              <div className="text-center py-12 px-4">
+                <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                <p className="text-xs text-slate-500 font-medium">Đang tải danh sách đánh giá...</p>
+              </div>
+            ) : feedbacks.length === 0 ? (
               <p className="text-center text-slate-400 py-8">
                 Chưa có đánh giá nào từ khách hàng.
               </p>
@@ -1038,78 +1733,210 @@ export const ShopDashboardPage: React.FC = () => {
         </Card>
       )}
 
-      {/* TAB 4: REAL-TIME CHAT / HỘP THƯ TƯ VẤN */}
+      {/* TAB 4: REAL-TIME CHAT / HỘP THƯ TƯ VẤN (CHUẨN SHOPEE SELLER WORKSPACE 3 CỘT NÂNG CAO CÓ THỂ KÉO CHUỘT ĐIỀU CHỈNH ĐỘ RỘNG) */}
       {tab === "chat" && (
-        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col md:flex-row h-[600px] animate-in fade-in">
-          {/* Left Column: Conversation Threads */}
-          <div className="w-full md:w-80 border-r border-slate-200 flex flex-col bg-slate-50/50">
-            <div className="p-4 border-b border-slate-200 bg-white">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-                  <MessageSquare size={16} className="text-emerald-600" />
-                  Hộp thư tư vấn ({chatThreads.length})
-                </h3>
-                <span className="text-[10px] text-emerald-600 flex items-center gap-1 font-medium bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+        <div
+          ref={chatContainerRef}
+          className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-row flex-1 min-h-0 animate-in fade-in relative"
+        >
+          {/* ========================================================================= */}
+          {/* CỘT 1: DANH SÁCH HỘI THOẠI KHÁCH HÀNG (INBOX LIST)                       */}
+          {/* ========================================================================= */}
+          <div
+            style={{ width: isDesktop ? `${col1Width}px` : "100%" }}
+            className={`
+              shrink-0 border-r border-slate-200 flex flex-col bg-slate-50/70 h-full overflow-hidden
+              ${isDesktop ? "flex" : mobileChatView === "list" ? "w-full flex" : "hidden"}
+            `}
+          >
+            {/* Header Cột 1 */}
+            <div className="p-3.5 border-b border-slate-200 bg-white">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                    <MessageSquare size={15} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-800 text-xs sm:text-sm">
+                      Hộp thư tư vấn
+                    </h3>
+                    <p className="text-[10px] text-slate-400">
+                      {chatThreads.length} khách hàng
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[10px] text-emerald-600 flex items-center gap-1 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
                   {isRealTimeChatConnected ? (
                     <>
-                      <Wifi size={10} /> Real-time
+                      <Wifi size={10} className="text-emerald-500" /> Trực tuyến
                     </>
                   ) : (
                     <>
-                      <WifiOff size={10} /> Chờ kết nối
+                      <WifiOff size={10} className="text-slate-400" /> Chờ kết nối
                     </>
                   )}
                 </span>
               </div>
-              <div className="relative">
+
+              {/* Ô tìm kiếm */}
+              <div className="relative mb-2">
                 <Search
-                  size={14}
+                  size={13}
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
                 />
                 <input
                   value={threadSearch}
                   onChange={(e) => setThreadSearch(e.target.value)}
-                  placeholder="Tìm khách hàng hoặc tin nhắn..."
-                  className="w-full pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-emerald-500"
+                  placeholder="Tìm khách hàng hoặc nội dung..."
+                  className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-emerald-500"
                 />
+              </div>
+
+              {/* Tabs lọc hội thoại 4 chế độ chuẩn Shopee Seller */}
+              <div className="grid grid-cols-4 gap-1 bg-slate-100 p-1 rounded-xl text-[10px] font-semibold text-center">
+                <button
+                  type="button"
+                  onClick={() => setChatFilter("all")}
+                  className={`py-1 rounded-lg transition-all cursor-pointer ${
+                    chatFilter === "all"
+                      ? "bg-white text-slate-800 shadow-2xs font-bold"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Tất cả
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChatFilter("unread")}
+                  className={`py-1 rounded-lg transition-all cursor-pointer relative ${
+                    chatFilter === "unread"
+                      ? "bg-white text-slate-800 shadow-2xs font-bold"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Chưa đọc
+                  {totalUnreadChats > 0 && (
+                    <span className="ml-1 px-1 py-0.2 bg-red-500 text-white rounded-full text-[8px]">
+                      {totalUnreadChats}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChatFilter("needs_reply")}
+                  className={`py-1 rounded-lg transition-all cursor-pointer relative ${
+                    chatFilter === "needs_reply"
+                      ? "bg-white text-amber-800 shadow-2xs font-bold"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Chờ trả lời
+                  {needsReplyCount > 0 && (
+                    <span className="ml-1 px-1 py-0.2 bg-amber-500 text-white rounded-full text-[8px]">
+                      {needsReplyCount}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChatFilter("has_order")}
+                  className={`py-1 rounded-lg transition-all cursor-pointer ${
+                    chatFilter === "has_order"
+                      ? "bg-white text-slate-800 shadow-2xs font-bold"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Có đơn
+                </button>
               </div>
             </div>
 
+            {/* Danh sách các cuộc chat - Cuộn độc lập */}
             <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
-              {filteredChatThreads.length === 0 ? (
+              {tabLoading && chatThreads.length === 0 ? (
                 <div className="p-8 text-center text-xs text-slate-400">
-                  Chưa có cuộc trò chuyện nào từ khách hàng.
+                  <div className="w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                  Đang đồng bộ tin nhắn...
+                </div>
+              ) : filteredChatThreads.length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-400">
+                  Không tìm thấy cuộc trò chuyện nào.
                 </div>
               ) : (
                 filteredChatThreads.map((t) => {
                   const isSelected = selectedThread?.chatId === t.chatId;
+                  const displayName = t.userName?.trim() || "Khách hàng";
+                  const displayTime = formatChatTime(t.updatedAt);
+                  const hasOrder = orders.some(
+                    (o) =>
+                      (o.customerName && o.customerName.toLowerCase().trim() === displayName.toLowerCase().trim()) ||
+                      (o.customerId && String(o.customerId) === String(t.userId))
+                  );
+                  const isLastMsgFromShop = t.lastSenderId === String(shopId);
+
                   return (
                     <button
                       key={t.chatId}
                       onClick={() => handleSelectThread(t)}
-                      className={`w-full p-4 text-left flex items-start gap-3 transition-colors cursor-pointer ${isSelected
-                          ? "bg-emerald-50/80 border-l-4 border-emerald-600"
-                          : "hover:bg-slate-100/60 bg-white"
-                        }`}
+                      className={`w-full p-3.5 text-left flex items-start gap-3 transition-colors cursor-pointer relative ${
+                        isSelected
+                          ? "bg-emerald-50/90 border-l-4 border-emerald-600"
+                          : "hover:bg-slate-100/70 bg-white"
+                      }`}
                     >
-                      <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs">
-                        <UserIcon size={18} />
+                      {/* Avatar Khách (ảnh Google hoặc chữ cái đầu) */}
+                      <div className="relative shrink-0">
+                        {t.userAvatar ? (
+                          <img
+                            src={t.userAvatar}
+                            alt={displayName}
+                            className="w-10 h-10 rounded-full object-cover border border-slate-200 shadow-2xs"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-2xs uppercase">
+                            {displayName.charAt(0) || "K"}
+                          </div>
+                        )}
+                        {/* Active online dot */}
+                        <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white" />
                       </div>
+
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-0.5">
-                          <p className="font-bold text-slate-800 text-xs truncate">
-                            {t.userName}
-                          </p>
-                          <span className="text-[10px] text-slate-400 shrink-0">
-                            {t.updatedAt}
+                        <div className="flex items-center justify-between mb-1 gap-1">
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <p className="font-bold text-slate-800 text-xs truncate">
+                              {displayName}
+                            </p>
+                            {hasOrder && (
+                              <span className="text-[9px] bg-amber-50 text-amber-700 px-1.5 py-0.2 rounded-sm border border-amber-200 font-semibold shrink-0">
+                                Đơn hàng
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-400 shrink-0 font-mono">
+                            {displayTime}
                           </span>
                         </div>
-                        <p className="text-[11px] text-slate-500 truncate leading-relaxed">
-                          {t.lastMessage || "Khách hàng bắt đầu cuộc trò chuyện"}
-                        </p>
+
+                        <div className="flex items-center justify-between gap-1">
+                          <p className={`text-[11px] truncate leading-relaxed flex items-center gap-1 flex-1 ${
+                            isSelected ? "text-slate-700 font-medium" : "text-slate-500"
+                          }`}>
+                            {isLastMsgFromShop && (
+                              <CheckCheck size={12} className="text-emerald-600 shrink-0 inline" />
+                            )}
+                            <span className="truncate">{t.lastMessage || "Khách bắt đầu cuộc trò chuyện"}</span>
+                          </p>
+                          {t.needsReply && (
+                            <span className="text-[8px] bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded-full font-bold border border-amber-200 shrink-0">
+                              Chờ trả lời
+                            </span>
+                          )}
+                        </div>
                       </div>
+
                       {t.unreadCount > 0 && (
-                        <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center font-bold shrink-0">
+                        <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[9px] flex items-center justify-center font-bold shrink-0 shadow-2xs">
                           {t.unreadCount}
                         </span>
                       )}
@@ -1120,81 +1947,434 @@ export const ShopDashboardPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Right Column: Active Conversation Chat Window */}
-          <div className="flex-1 flex flex-col bg-white">
+          {/* ========================================================================= */}
+          {/* THANH KÉO CHUỘT RESIZER 1 (DESKTOP): ĐIỀU CHỈNH ĐỘ RỘNG CỘT 1            */}
+          {/* ========================================================================= */}
+          {isDesktop && (
+            <div
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setIsDraggingCol1(true);
+              }}
+              className={`hidden lg:flex items-center justify-center w-1.5 hover:w-2.5 hover:bg-emerald-500 active:bg-emerald-600 cursor-col-resize select-none shrink-0 transition-all z-20 group relative ${
+                isDraggingCol1 ? "bg-emerald-500 w-2.5 shadow-xs" : "bg-slate-200/80 hover:shadow-xs"
+              }`}
+              title="Kéo chuột sang trái/phải để điều chỉnh độ rộng danh sách khách hàng"
+            >
+              <div className="w-0.5 h-7 bg-slate-400 group-hover:bg-white rounded-full transition-colors" />
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* CỘT 2: KHUNG CHAT CHÍNH (ACTIVE CHAT CANVAS - FLEX-1)                     */}
+          {/* ========================================================================= */}
+          <div
+            className={`
+              flex-1 flex flex-col bg-white min-w-0 border-r border-slate-200 h-full overflow-hidden
+              ${isDesktop ? "flex" : mobileChatView === "chat" ? "w-full flex" : "hidden"}
+            `}
+          >
             {selectedThread ? (
               <>
-                {/* Chat Header */}
-                <div className="px-6 py-3.5 border-b border-slate-200 bg-white flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs shadow-2xs">
-                      <UserIcon size={16} />
+                {/* Header Cột 2 */}
+                <div className="px-3 sm:px-5 py-2.5 sm:py-3 border-b border-slate-200 bg-white flex items-center justify-between shadow-2xs gap-2 shrink-0">
+                  <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                    {/* Nút Back quay lại Danh sách hội thoại trên Mobile / Tablet */}
+                    {!isDesktop && (
+                      <button
+                        type="button"
+                        onClick={() => setMobileChatView("list")}
+                        className="p-1.5 -ml-1 text-slate-600 hover:text-emerald-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer flex items-center gap-1 shrink-0"
+                        title="Quay lại danh sách hội thoại"
+                      >
+                        <ArrowLeft size={18} />
+                        {totalUnreadChats > 0 && (
+                          <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[9px] flex items-center justify-center font-bold">
+                            {totalUnreadChats}
+                          </span>
+                        )}
+                      </button>
+                    )}
+
+                    <div className="relative shrink-0">
+                      {selectedThread.userAvatar ? (
+                        <img
+                          src={selectedThread.userAvatar}
+                          alt={selectedThread.userName}
+                          className="w-8 sm:w-9 h-8 sm:h-9 rounded-full object-cover border border-slate-200 shadow-2xs"
+                        />
+                      ) : (
+                        <div className="w-8 sm:w-9 h-8 sm:h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-2xs uppercase">
+                          {(selectedThread.userName?.trim() || "K").charAt(0) || "K"}
+                        </div>
+                      )}
+                      <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-500 border border-white" />
                     </div>
-                    <div>
-                      <h4 className="font-bold text-slate-800 text-sm">
-                        {selectedThread.userName}
-                      </h4>
-                      <p className="text-[10px] text-emerald-600 flex items-center gap-1 font-medium mt-0.5">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 sm:gap-2">
+                        <h4 className="font-bold text-slate-800 text-xs sm:text-sm truncate">
+                          {selectedThread.userName?.trim() || "Khách hàng"}
+                        </h4>
+                        <span className="text-[9px] sm:text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.2 rounded-full font-medium border border-blue-100 shrink-0">
+                          Khách hàng
+                        </span>
+                      </div>
+                      <p className="text-[9px] sm:text-[10px] text-emerald-600 flex items-center gap-1 font-medium mt-0.5 truncate">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
                         Đang kết nối trực tiếp
                       </p>
                     </div>
                   </div>
+
+                  {/* Nút Toggle Sidebar Hồ sơ & Đơn hàng (Cột 3) */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isDesktop) {
+                          setShowCustomerSidebar(!showCustomerSidebar);
+                        } else {
+                          setMobileProfileOpen(true);
+                        }
+                      }}
+                      className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
+                        (isDesktop ? showCustomerSidebar : mobileProfileOpen)
+                          ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                          : "bg-slate-100 text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200"
+                      }`}
+                      title={
+                        isDesktop
+                          ? showCustomerSidebar
+                            ? "Thu gọn bảng hồ sơ & đơn hàng"
+                            : "Mở bảng hồ sơ & đơn hàng của khách"
+                          : "Mở xem hồ sơ & đơn hàng của khách"
+                      }
+                    >
+                      <Info size={14} />
+                      <span className="hidden sm:inline">
+                        {isDesktop
+                          ? showCustomerSidebar
+                            ? "Đang mở hồ sơ"
+                            : "Xem hồ sơ & đơn"
+                          : "Xem hồ sơ & đơn"}
+                      </span>
+                      <span className="sm:hidden">Hồ sơ</span>
+                    </button>
+                  </div>
                 </div>
 
-                {/* Message Thread */}
-                <div className="flex-1 overflow-y-auto p-6 space-y-3 bg-slate-50/50">
-                  <div className="text-center my-2">
-                    <span className="px-3 py-1 bg-slate-200/60 rounded-full text-[10px] font-semibold text-slate-500">
-                      Hội thoại tư vấn sách với {selectedThread.userName}
+                {/* Dải thông báo cảnh báo bảo mật giao dịch chuẩn Shopee */}
+                <div className="px-4 py-1.5 bg-amber-50/70 border-b border-amber-100 flex items-center gap-2 text-[10px] text-amber-800">
+                  <ShieldAlert size={12} className="text-amber-600 shrink-0" />
+                  <span className="truncate">
+                    BookVerse khuyến cáo không giao dịch, chuyển khoản hoặc chia sẻ số điện thoại cá nhân ngoài sàn để đảm bảo quyền lợi bảo vệ đơn hàng.
+                  </span>
+                </div>
+
+                {/* Banner Ghim Sản phẩm Khách đang quan tâm (Pinned Product Context) */}
+                {relatedBook && (
+                  <div className="px-4 py-2 bg-blue-50/80 border-b border-blue-100 flex items-center justify-between gap-3 animate-in fade-in">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-11 shrink-0 rounded-md overflow-hidden border border-blue-200 shadow-2xs bg-white">
+                        <BookCover book={relatedBook} size="sm" />
+                      </div>
+                      <div className="min-w-0">
+                        <span className="text-[9px] font-bold text-blue-700 uppercase tracking-wider block">
+                          Sách khách đang quan tâm
+                        </span>
+                        <p className="font-bold text-slate-800 text-xs truncate max-w-xs sm:max-w-md">
+                          {relatedBook.title}
+                        </p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs font-extrabold text-blue-700">
+                            {fmt(relatedBook.price)}
+                          </span>
+                          <span className="text-[10px] text-emerald-700 bg-emerald-100/70 px-1.5 py-0.2 rounded-sm font-semibold border border-emerald-200">
+                            Tồn kho: {relatedBook.stock} cuốn
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleSendProductCard(relatedBook)}
+                        className="px-2 py-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-600 hover:text-white transition-all shadow-2xs cursor-pointer flex items-center gap-1"
+                        title="Gửi thẻ sách này vào cuộc trò chuyện"
+                      >
+                        <Share2 size={11} /> Gửi thẻ sách
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setShopReplyInput(
+                            `Dạ cuốn "${relatedBook.title}" bên shop hiện đang có sẵn hàng chính hãng, giá ${fmt(relatedBook.price)}, tồn kho còn ${relatedBook.stock} cuốn bạn nhé!`
+                          )
+                        }
+                        className="px-2 py-1 text-[10px] font-semibold text-blue-700 bg-white border border-blue-200 rounded-lg hover:bg-blue-600 hover:text-white transition-all shadow-2xs cursor-pointer flex items-center gap-1"
+                      >
+                        <Sparkles size={11} /> Gửi text
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Vùng luồng tin nhắn (Message Thread - Cuộn độc lập & Render Rich Message Types) */}
+                <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3.5 bg-slate-50/60">
+                  <div className="text-center my-1">
+                    <span className="px-3 py-1 bg-slate-200/70 rounded-full text-[10px] font-semibold text-slate-500">
+                      Bắt đầu cuộc tư vấn trực tiếp với {selectedThread.userName}
                     </span>
                   </div>
 
-                  {threadMessages.map((m) => {
-                    // isFromCustomer === true nghĩa là tin từ Khách hàng (bên trái)
-                    // isFromCustomer === false nghĩa là tin từ Shop (bên phải)
+                  {cleanAndDeduplicateMessages(threadMessages).map((m, idx) => {
                     const isShop = !m.isFromCustomer;
+                    const product = parseProductFromMessage(m);
                     return (
                       <div
-                        key={m.id}
-                        className={`flex flex-col ${isShop ? "items-end" : "items-start"}`}
+                        key={m.id || idx}
+                        className={`flex items-end gap-2 ${isShop ? "justify-end" : "justify-start"}`}
                       >
-                        <div
-                          className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-xs sm:text-sm shadow-xs ${isShop
-                              ? "bg-[#047857] text-white rounded-br-none"
-                              : "bg-white text-slate-800 border border-slate-200 rounded-bl-none"
-                            }`}
-                        >
-                          <p className="leading-relaxed whitespace-pre-wrap">{m.text}</p>
+                        {/* Avatar Khách hàng bên trái */}
+                        {!isShop && (
+                          <div className="shrink-0 mb-1">
+                            {selectedThread.userAvatar ? (
+                              <img
+                                src={selectedThread.userAvatar}
+                                alt={selectedThread.userName}
+                                className="w-7 h-7 rounded-full object-cover border border-slate-200 shadow-2xs"
+                              />
+                            ) : (
+                              <div className="w-7 h-7 rounded-full bg-slate-300 text-slate-700 flex items-center justify-center font-bold text-[10px] shadow-2xs">
+                                {(selectedThread.userName?.trim() || "K").charAt(0) || "K"}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <div className={`flex flex-col ${isShop ? "items-end" : "items-start"} max-w-[75%]`}>
+                          {/* 1. Tin nhắn dạng Thẻ Sản Phẩm (Product Card) */}
+                          {product ? (
+                            <div className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-xs w-72 sm:w-80 text-left hover:shadow-md transition-shadow">
+                              <div className="flex items-start gap-3 mb-2.5">
+                                {/* Bìa sách chuẩn tỉ lệ 3:4 kích thước 80x112px */}
+                                <div className="w-20 h-28 rounded-lg bg-slate-100 overflow-hidden border border-slate-200/80 shrink-0 flex items-center justify-center relative shadow-xs">
+                                  {product.imageUrl ? (
+                                    <img
+                                      src={product.imageUrl}
+                                      alt={product.title}
+                                      className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full bg-linear-to-br from-amber-700 to-amber-900 flex flex-col items-center justify-center p-1.5 text-center text-white">
+                                      <BookOpen size={20} className="mb-1 text-amber-200" />
+                                      <span className="text-[9px] font-bold line-clamp-2 leading-tight">
+                                        {product.title}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="min-w-0 flex-1 flex flex-col justify-between self-stretch">
+                                  <div>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="text-[9px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-bold border border-emerald-200">
+                                        Sản phẩm Shop
+                                      </span>
+                                      {product.rating && (
+                                        <span className="text-[10px] text-amber-600 font-bold flex items-center gap-0.5">
+                                          ⭐ {product.rating}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <h5
+                                      className="font-bold text-xs text-slate-800 line-clamp-2 mt-1 leading-snug"
+                                      title={product.title}
+                                    >
+                                      {product.title}
+                                    </h5>
+                                    {product.author && (
+                                      <p className="text-[11px] text-slate-500 font-medium truncate mt-0.5">
+                                        Tác giả: {product.author}
+                                      </p>
+                                    )}
+                                    {product.publisher && (
+                                      <p className="text-[10px] text-slate-400 truncate mt-0.2">
+                                        NXB: {product.publisher}
+                                      </p>
+                                    )}
+                                  </div>
+
+                                  <div className="pt-1.5 mt-1 border-t border-slate-100">
+                                    <p className="text-sm font-black text-blue-700 leading-none">
+                                      {fmt(product.price)}
+                                    </p>
+                                    {product.stock !== undefined && (
+                                      <p className="text-[10px] text-slate-400 mt-1">
+                                        Tồn kho: <span className="font-semibold text-slate-600">{product.stock} cuốn</span>
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <p className="text-[11px] text-slate-600 bg-slate-50 p-2 rounded-xl border border-slate-100 leading-relaxed">
+                                {cleanProductText(m.text) || `Shop xin gửi bạn thông tin cuốn sách "${product.title}"`}
+                              </p>
+                            </div>
+                          ) : m.messageType === "order_card" && m.orderData ? (
+                            /* 2. Tin nhắn dạng Thẻ Đơn Hàng (Order Card) */
+                            <div className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-sm w-64 text-left">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="font-extrabold text-xs text-slate-800 font-mono">
+                                  #{formatShortOrderId(m.orderData.orderId)}
+                                </span>
+                                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                                  {m.orderData.orderStatus}
+                                </span>
+                              </div>
+                              <div className="text-xs space-y-1 py-1.5 border-y border-slate-100 text-slate-600">
+                                <p>• Số lượng: {m.orderData.itemCount} sản phẩm</p>
+                                <p className="font-bold text-emerald-700">
+                                  Tổng tiền: {fmt(m.orderData.totalAmount)}
+                                </p>
+                              </div>
+                              <p className="text-[10px] text-slate-400 mt-1.5 text-center">
+                                Đơn hàng đang được Shop xử lý
+                              </p>
+                            </div>
+                          ) : parseVoucherFromMessage(m) ? (
+                            /* 3. Tin nhắn dạng Thẻ Voucher Vé Hoàng Kim (Voucher Ticket Card) */
+                            <VoucherTicket
+                              voucher={parseVoucherFromMessage(m)!}
+                              isShop={isShop}
+                            />
+                          ) : m.imageUrl ? (
+                            /* 4. Tin nhắn dạng Hình Ảnh Chụp Thật (Image Attachment - Ảnh thuần) */
+                            <div className="rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white p-1 max-w-[240px]">
+                              <img
+                                src={m.imageUrl}
+                                alt="Ảnh thực tế sách"
+                                onClick={() => setPreviewModalImage(m.imageUrl || null)}
+                                className="w-full h-auto max-h-60 rounded-xl object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                              />
+                              {m.text && m.text.trim() !== "" && m.text !== "Shop gửi bạn ảnh chụp thực tế của sách" && (
+                                <p className="text-xs text-slate-700 px-2 py-1 leading-relaxed">{m.text}</p>
+                              )}
+                            </div>
+                          ) : (
+                            /* 5. Tin nhắn văn bản truyền thống */
+                            <div
+                              className={`rounded-2xl px-4 py-2.5 text-xs sm:text-sm shadow-2xs leading-relaxed whitespace-pre-wrap ${
+                                isShop
+                                  ? "bg-emerald-600 text-white rounded-tr-xs"
+                                  : "bg-white text-slate-800 border border-slate-200/80 rounded-tl-xs"
+                              }`}
+                            >
+                              <p>{m.text}</p>
+                            </div>
+                          )}
+
+                          <span className="text-[10px] text-slate-400 mt-1 px-1 font-mono">
+                            {formatChatTime(m.createdAt) || m.createdAt}
+                          </span>
                         </div>
-                        <span className="text-[10px] text-slate-400 mt-1 px-1 font-mono">
-                          {m.createdAt}
-                        </span>
+
+                        {/* Avatar Shop bên phải */}
+                        {isShop && (
+                          <div className="w-7 h-7 rounded-full bg-emerald-700 text-white flex items-center justify-center font-bold text-[10px] shrink-0 mb-1 shadow-2xs">
+                            S
+                          </div>
+                        )}
                       </div>
                     );
                   })}
                   <div ref={chatMessagesEndRef} />
                 </div>
 
-                {/* Reply Input Bar */}
+                {/* Thanh Câu trả lời mẫu nhanh (Quick Reply Chips) */}
+                <div className="px-3.5 py-1.5 bg-white border-t border-slate-100 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap scrollbar-none">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0 flex items-center gap-1 mr-1">
+                    <Sparkles size={11} className="text-amber-500" /> Mẫu:
+                  </span>
+                  {QUICK_REPLIES.map((chip, cIdx) => (
+                    <button
+                      key={cIdx}
+                      type="button"
+                      onClick={() => setShopReplyInput(chip.text)}
+                      className="px-2.5 py-0.5 rounded-full bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 text-[11px] text-slate-600 font-medium transition-all shrink-0 cursor-pointer border border-slate-200 shadow-2xs"
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Thanh nhập tin nhắn chuyên dụng (Rich Input Bar) */}
                 <form
                   onSubmit={handleSendShopReply}
-                  className="p-4 bg-white border-t border-slate-200 flex items-center gap-3"
+                  className="p-3 bg-white border-t border-slate-200 flex items-center gap-2"
                 >
+                  {/* Nút gửi ảnh chụp thực tế */}
+                  <input
+                    type="file"
+                    ref={chatFileInputRef}
+                    onChange={handleUploadChatImage}
+                    accept="image/*"
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    disabled={isUploadingChatImage || isSendingShopReply}
+                    onClick={() => chatFileInputRef.current?.click()}
+                    className="p-2 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-xl transition-all cursor-pointer shrink-0 border border-slate-200"
+                    title="Đính kèm ảnh chụp thực tế của sách"
+                  >
+                    {isUploadingChatImage ? (
+                      <Loader2 size={16} className="animate-spin text-emerald-600" />
+                    ) : (
+                      <ImageIcon size={16} />
+                    )}
+                  </button>
+
+                  {/* Nút chọn gửi thẻ sách */}
+                  <button
+                    type="button"
+                    onClick={handleOpenProductPicker}
+                    className="p-2 text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded-xl transition-all cursor-pointer shrink-0 border border-slate-200"
+                    title="Chọn và gửi thẻ sách cho khách"
+                  >
+                    <BookOpen size={16} />
+                  </button>
+
                   <input
                     value={shopReplyInput}
+                    disabled={isSendingShopReply}
                     onChange={(e) => setShopReplyInput(e.target.value)}
-                    placeholder={`Nhập tin nhắn trả lời ${selectedThread.userName}...`}
-                    className="flex-1 text-xs sm:text-sm px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 bg-slate-50"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendShopReply(e);
+                      }
+                    }}
+                    placeholder={
+                      isSendingShopReply
+                        ? "Đang gửi câu trả lời..."
+                        : `Nhắn tin trả lời ${selectedThread.userName} (Nhấn Enter để gửi)... `
+                    }
+                    className="flex-1 text-xs sm:text-sm px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 bg-slate-50 disabled:opacity-60 transition-all"
                   />
                   <Btn
                     type="submit"
-                    disabled={!shopReplyInput.trim()}
+                    disabled={!shopReplyInput.trim() || isSendingShopReply}
                     color="#047857"
                     size="md"
-                    className="cursor-pointer"
+                    className="cursor-pointer shrink-0 shadow-sm"
                   >
-                    <Send size={15} /> Gửi tin
+                    {isSendingShopReply ? (
+                      <Loader2 size={15} className="animate-spin" />
+                    ) : (
+                      <Send size={15} />
+                    )} Gửi tin
                   </Btn>
                 </form>
               </>
@@ -1210,6 +2390,170 @@ export const ShopDashboardPage: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* ========================================================================= */}
+          {/* THANH KÉO CHUỘT RESIZER 2 (DESKTOP): ĐIỀU CHỈNH ĐỘ RỘNG CỘT 3            */}
+          {/* ========================================================================= */}
+          {isDesktop && showCustomerSidebar && selectedThread && (
+            <div
+              onMouseDown={(e) => {
+                e.preventDefault();
+                setIsDraggingCol3(true);
+              }}
+              className={`hidden lg:flex items-center justify-center w-1.5 hover:w-2.5 hover:bg-emerald-500 active:bg-emerald-600 cursor-col-resize select-none shrink-0 transition-all z-20 group relative ${
+                isDraggingCol3 ? "bg-emerald-500 w-2.5 shadow-xs" : "bg-slate-200/80 hover:shadow-xs"
+              }`}
+              title="Kéo chuột sang trái/phải để điều chỉnh độ rộng hồ sơ khách hàng"
+            >
+              <div className="w-0.5 h-7 bg-slate-400 group-hover:bg-white rounded-full transition-colors" />
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* CỘT 3 TRÊN DESKTOP: CỘT SIDEBAR HỒ SƠ & ĐƠN HÀNG KÈM KÉO RESIZER          */}
+          {/* ========================================================================= */}
+          {isDesktop && showCustomerSidebar && selectedThread && (
+            <div
+              style={{ width: `${col3Width}px` }}
+              className="shrink-0 bg-slate-50/50 flex flex-col h-full overflow-hidden border-l border-slate-200 animate-in slide-in-from-right duration-150"
+            >
+              {renderCustomerProfileContent(() => setShowCustomerSidebar(false))}
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* CỘT 3 TRÊN MOBILE / TABLET: SLIDE-OVER DRAWER VỚI BACKDROP MỜ             */}
+          {/* ========================================================================= */}
+          {!isDesktop && mobileProfileOpen && selectedThread && (
+            <div
+              className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex justify-end animate-in fade-in duration-150 lg:hidden"
+              onClick={() => setMobileProfileOpen(false)}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-sm sm:max-w-md bg-white h-full flex flex-col shadow-2xl animate-in slide-in-from-right duration-200"
+              >
+                {renderCustomerProfileContent(() => setMobileProfileOpen(false))}
+              </div>
+            </div>
+          )}
+
+          {/* Modal phóng to ảnh chụp thực tế của sách */}
+          {previewModalImage && (
+            <div
+              onClick={() => setPreviewModalImage(null)}
+              className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in"
+            >
+              <div className="relative max-w-2xl max-h-[90vh] bg-white rounded-2xl overflow-hidden p-2 shadow-2xl">
+                <button
+                  type="button"
+                  onClick={() => setPreviewModalImage(null)}
+                  className="absolute top-3 right-3 p-1.5 bg-black/60 text-white rounded-full hover:bg-black transition-colors cursor-pointer z-10"
+                >
+                  <X size={18} />
+                </button>
+                <img
+                  src={previewModalImage}
+                  alt="Ảnh chi tiết sách"
+                  className="w-full h-auto max-h-[80vh] object-contain rounded-xl"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Modal chọn sách để gửi thẻ sản phẩm */}
+          {showProductPickerModal && (
+            <div
+              onClick={() => setShowProductPickerModal(false)}
+              className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in"
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white rounded-3xl p-5 max-w-lg w-full shadow-2xl border border-slate-200 max-h-[80vh] flex flex-col animate-in zoom-in-95 duration-150"
+              >
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <h4 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                    <BookOpen size={16} className="text-emerald-600" />
+                    Chọn sách trong kho để gửi thẻ tư vấn
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => setShowProductPickerModal(false)}
+                    className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                <div className="p-3 border-b border-slate-100 bg-slate-50">
+                  <div className="relative">
+                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      value={productPickerSearch}
+                      onChange={(e) => setProductPickerSearch(e.target.value)}
+                      placeholder="Tìm sách theo tên hoặc tác giả..."
+                      className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl bg-white focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto py-3 px-2 space-y-2 divide-y divide-slate-50">
+                  {isLoadingPickerProducts ? (
+                    <div className="text-center py-8 text-xs text-slate-400">
+                      <Loader2 size={20} className="animate-spin text-emerald-600 mx-auto mb-2" />
+                      Đang tải kho sách của shop...
+                    </div>
+                  ) : products.length === 0 ? (
+                    <p className="text-center text-xs text-slate-400 py-6">
+                      Kho sách chưa có sản phẩm nào để gửi.
+                    </p>
+                  ) : (
+                    products
+                      .filter((b) =>
+                        productPickerSearch
+                          ? (b.title || "").toLowerCase().includes(productPickerSearch.toLowerCase()) ||
+                            (b.author || "").toLowerCase().includes(productPickerSearch.toLowerCase())
+                          : true
+                      )
+                      .map((b) => (
+                      <div
+                        key={b.id}
+                        className="pt-2 flex items-center justify-between gap-3 hover:bg-slate-50 p-2 rounded-xl transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-9 h-12 rounded bg-slate-100 border border-slate-200 shrink-0 overflow-hidden flex items-center justify-center">
+                            {b.imageUrl ? (
+                              <img src={b.imageUrl} alt={b.title} className="w-full h-full object-cover" />
+                            ) : (
+                              <BookOpen size={16} className="text-slate-400" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <h5 className="font-bold text-xs text-slate-800 truncate">
+                              {b.title}
+                            </h5>
+                            <p className="text-xs font-extrabold text-blue-700 mt-0.5">
+                              {fmt(b.price)}
+                            </p>
+                            <span className="text-[10px] text-slate-400">
+                              Tồn kho: {b.stock} cuốn
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleSendProductCard(b)}
+                          className="px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors shrink-0 shadow-2xs cursor-pointer flex items-center gap-1"
+                        >
+                          <Send size={12} /> Gửi thẻ
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1260,8 +2604,8 @@ export const ShopDashboardPage: React.FC = () => {
                   <div
                     key={index}
                     className={`relative rounded-xl overflow-hidden border transition-all group bg-slate-50 ${img.isCover
-                        ? "border-emerald-500 ring-2 ring-emerald-500/20 shadow-xs"
-                        : "border-slate-200 hover:border-slate-300"
+                      ? "border-emerald-500 ring-2 ring-emerald-500/20 shadow-xs"
+                      : "border-slate-200 hover:border-slate-300"
                       }`}
                   >
                     <div className="aspect-[3/4] w-full bg-slate-100 relative">
@@ -1315,8 +2659,8 @@ export const ShopDashboardPage: React.FC = () => {
             <div
               onClick={() => !isUploadingImage && !isSubmitting && fileInputRef.current?.click()}
               className={`border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-all ${isUploadingImage || isSubmitting
-                  ? "bg-slate-50 border-slate-300 cursor-not-allowed"
-                  : "border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/30"
+                ? "bg-slate-50 border-slate-300 cursor-not-allowed"
+                : "border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/30"
                 }`}
             >
               {isUploadingImage ? (
