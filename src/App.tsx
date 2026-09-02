@@ -157,7 +157,10 @@ const AppContent: React.FC = () => {
         )}
 
         {role === "customer" && customerPage === "profile" && (
-          <ProfilePage />
+          <ProfilePage
+            onOpenAuth={() => setAuthModalOpen(true)}
+            onGoHome={() => setCustomerPage("home")}
+          />
         )}
 
         {/* SHOP VIEW */}

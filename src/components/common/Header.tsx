@@ -70,7 +70,13 @@ export const Header: React.FC<HeaderProps> = ({
           ).map(([pg, label]) => (
             <button
               key={pg}
-              onClick={() => setCustomerPage(pg)}
+              onClick={() => {
+                if ((pg === "orders" || pg === "profile") && !isAuthenticated) {
+                  onOpenAuth();
+                  return;
+                }
+                setCustomerPage(pg);
+              }}
               className="px-3.5 py-1.5 text-xs font-semibold transition-all cursor-pointer"
               style={
                 customerPage === pg
@@ -194,49 +200,52 @@ export const Header: React.FC<HeaderProps> = ({
                 setUserMenuOpen((o) => !o);
                 setRoleOpen(false);
               }}
-              className="flex items-center gap-2 p-1 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+              className="flex items-center gap-2 p-1 rounded-xl hover:bg-[#2a211c] transition-colors cursor-pointer"
             >
               {user.avatar ? (
                 <img
                   src={user.avatar}
                   alt={user.name}
-                  className="w-8 h-8 rounded-full object-cover border border-slate-200 ring-2 ring-blue-500/20 shadow-xs"
+                  className="w-8 h-8 rounded-full object-cover border border-slate-700 ring-2 ring-[#c8843a]/30 shadow-xs"
                 />
               ) : (
-                <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs">
+                <div className="w-8 h-8 rounded-full bg-[#3d2b1a] text-[#c8843a] border border-[#523d2b] flex items-center justify-center font-bold text-xs">
                   {user.name ? user.name[0] : "U"}
                 </div>
               )}
             </button>
             {userMenuOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-56 bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100">
-                <div className="px-4 py-3 border-b border-slate-100">
+              <div className="absolute right-0 top-full mt-1.5 w-56 bg-[#2a211c] rounded-2xl border border-slate-700 shadow-xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100">
+                <div className="px-4 py-3 bg-[#1c1612] border-b border-slate-700">
                   <div className="flex items-center gap-2">
-                    <p className="text-xs font-bold text-slate-800 truncate flex-1">{user.name}</p>
+                    <p className="text-xs font-bold text-[#e8ddd0] truncate flex-1">{user.name}</p>
                     {user.authProvider === "google" && (
-                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-50 text-blue-600 border border-blue-100">
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-950 text-blue-300 border border-blue-800">
                         Google
                       </span>
                     )}
                   </div>
-                  <p className="text-[11px] text-slate-400 truncate mt-0.5">{user.email}</p>
+                  <p className="text-[11px] text-[#b5a898] truncate mt-0.5">{user.email}</p>
                 </div>
                 <button
                   onClick={() => {
                     setCustomerPage("profile");
                     setUserMenuOpen(false);
                   }}
-                  className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-[#e8ddd0] hover:bg-[#3d2b1a] transition-colors text-left"
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-[#e8ddd0] hover:bg-[#3d2b1a] transition-colors text-left cursor-pointer"
                 >
-                  <Settings size={14} className="text-[#7a6a5a]" />
+                  <Settings size={14} className="text-[#c8843a]" />
                   Hồ sơ cá nhân
                 </button>
                 <button
                   onClick={async () => {
-                    setUserMenuOpen(false);
-                    await logout();
+                    if (window.confirm("Bạn có chắc chắn muốn đăng xuất khỏi tài khoản?")) {
+                      setUserMenuOpen(false);
+                      await logout();
+                      setCustomerPage("home");
+                    }
                   }}
-                  className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-red-400 hover:bg-red-950/20 hover:text-red-300 transition-colors text-left border-t border-[#3d2b1a] cursor-pointer"
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-red-400 hover:bg-red-950/30 hover:text-red-300 transition-colors text-left border-t border-slate-700/60 cursor-pointer"
                 >
                   <LogOut size={14} />
                   Đăng xuất

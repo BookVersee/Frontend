@@ -1,7 +1,7 @@
 import { apiClient } from "./api";
 import { User, AuthResponse, Role, Shop, ApiResponse } from "../types";
-import { DEMO_USERS, INITIAL_SHOPS } from "./mockData";
 import { setStoredToken, setStoredUser, removeStoredToken, getStoredUser } from "../utils/storage";
+import { DEMO_USERS, INITIAL_SHOPS } from "./mockData";
 
 export interface RegisterData {
   username?: string;
@@ -47,7 +47,7 @@ export const SEED_ACCOUNTS: Record<Role, { username: string; email: string; pass
     username: "admin",
     email: "admin@bookverse.com",
     password: "Password123!",
-    name: "Quản Trị Viên Sàn BookVerse",
+    name: "Hệ Thống Quản Trị Viên",
   },
   deliver: {
     username: "shipper_ghn1",
@@ -135,13 +135,13 @@ export const authService = {
     const payload: RegisterData =
       typeof data === "string"
         ? {
-            name: data,
-            email: email || "",
-            role,
-            phone,
-            address,
-            password: password || "Password123!",
-          }
+          name: data,
+          email: email || "",
+          role,
+          phone,
+          address,
+          password: password || "Password123!",
+        }
         : data;
 
     const username = payload.username || payload.email.split("@")[0];
@@ -526,6 +526,60 @@ export const authService = {
     return { token: mockToken, user: mockUser };
   },
 
+  async changePassword(oldPassword: string, newPassword: string): Promise<string> {
+    try {
+      const response = await apiClient.put<ApiResponse<string>>("/user/ChangePassword", {
+        oldPassword,
+        newPassword,
+      });
+      return response.data?.message || response.data?.data || "Đổi mật khẩu thành công!";
+    } catch (error: any) {
+      console.warn("ChangePassword API error:", error);
+      if (error.response) {
+        const errorData = error.response.data;
+        const msg =
+          errorData?.message ||
+          errorData?.errors?.detail ||
+          (typeof errorData?.errors === "string" ? errorData.errors : null);
+        throw new Error(msg || "Mật khẩu cũ không chính xác hoặc không hợp lệ.");
+      }
+      throw new Error("Không thể kết nối đến máy chủ Backend để đổi mật khẩu.");
+    }
+  },
+
+  async getUserTransactions(): Promise<any[]> {
+    try {
+      const response = await apiClient.get<ApiResponse<any[]>>("/user/GetTransactions");
+      const list = response.data?.data || [];
+      return list.map((tx: any) => ({
+        id: tx.id,
+        userId: tx.userId,
+        orderId: tx.orderId || (tx.id ? String(tx.id).slice(0, 8) : 1001),
+        type: tx.type || (tx.amount >= 0 ? "REFUND" : "PAYMENT"),
+        amount: Math.abs(tx.amount || 0),
+        status: tx.status || "SUCCESS",
+        description: tx.description || (tx.type === "REFUND" ? "Hoàn tiền đơn hàng" : "Thanh toán đơn hàng"),
+        createdAt: tx.createdAt ? new Date(tx.createdAt).toLocaleString("vi-VN") : new Date().toLocaleString("vi-VN"),
+      }));
+    } catch (error) {
+      console.warn("getUserTransactions API error, falling back to mock:", error);
+      const current = getStoredUser<User>();
+      return INITIAL_TRANSACTIONS.filter((t) => t.userId === current?.id || t.orderId === 1001);
+    }
+  },
+
+  async deleteAccount(): Promise<string> {
+    try {
+      const res = await apiClient.delete<ApiResponse<string>>("/user/DeleteAccount");
+      this.logout();
+      return res.data?.message || "Tài khoản của bạn đã được vô hiệu hóa thành công.";
+    } catch (error: any) {
+      console.warn("deleteAccount API error:", error);
+      this.logout();
+      return "Đã ghi nhận yêu cầu vô hiệu hóa tài khoản của bạn.";
+    }
+  },
+
   async logout(refreshToken?: string): Promise<void> {
     try {
       await apiClient.post("/user/Logout", {
@@ -544,14 +598,6 @@ export const authService = {
       const res = await this.login(creds.username, creds.password);
       return res;
     } catch (error) {
-      if (creds.email && creds.email !== creds.username) {
-        try {
-          const res = await this.login(creds.email, creds.password);
-          return res;
-        } catch (e) {
-          // ignore
-        }
-      }
       console.warn(`[authService] switchRole to ${role} failed against API:`, error);
       const fallbackUser: User = {
         id: Date.now(),
