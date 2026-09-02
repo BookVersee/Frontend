@@ -12,28 +12,47 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ onNa
   const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loading, setLoading] = useState(false);
 
-  const loadNotifications = async () => {
-    const list = await notificationService.getNotifications(user?.id);
-    setNotifications(list);
-  };
-
+  // Chỉ lấy số thông báo chưa đọc ban đầu (payload nhẹ)
   useEffect(() => {
-    loadNotifications();
+    if (!user?.id) {
+      setNotifications([]);
+      setUnreadCount(0);
+      return;
+    }
+    notificationService.getUnreadNotifications().then((unreadList) => {
+      setUnreadCount(unreadList.length);
+    });
   }, [user?.id]);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  // Khi người dùng bấm mở dropdown mới tải toàn bộ danh sách thông báo
+  useEffect(() => {
+    if (isOpen && user?.id) {
+      setLoading(true);
+      notificationService
+        .getNotifications(user?.id)
+        .then((list) => {
+          setNotifications(list);
+          setUnreadCount(list.filter((n) => !n.read).length);
+        })
+        .finally(() => setLoading(false));
+    }
+  }, [isOpen, user?.id]);
 
   const handleMarkAsRead = async (id: number) => {
     await notificationService.markAsRead(id);
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, read: true } : n))
     );
+    setUnreadCount((c) => Math.max(0, c - 1));
   };
 
   const handleMarkAllRead = async () => {
     await notificationService.markAllAsRead(user?.id);
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    setUnreadCount(0);
   };
 
   const getIcon = (type: AppNotification["type"]) => {
@@ -93,7 +112,12 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ onNa
             </div>
 
             <div className="max-h-80 overflow-y-auto divide-y divide-[#3d2b1a]">
-              {notifications.length === 0 ? (
+              {loading && notifications.length === 0 ? (
+                <div className="py-8 text-center text-xs text-[#7a6a5a]">
+                  <div className="w-5 h-5 border-2 border-[#c8843a] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                  Đang tải thông báo...
+                </div>
+              ) : notifications.length === 0 ? (
                 <div className="py-8 text-center text-xs text-[#7a6a5a]">
                   Không có thông báo nào
                 </div>

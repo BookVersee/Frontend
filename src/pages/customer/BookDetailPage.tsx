@@ -401,6 +401,11 @@ export const BookDetailPage: React.FC<BookDetailPageProps> = ({
         shopId={currentBook.shopId}
         shopName={currentBook.shopName}
         book={currentBook}
+        onSelectBook={(newBook) => {
+          setCurrentBook(newBook);
+          setChatOpen(false);
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
       />
 
       {/* Full-Screen Image Zoom Modal */}

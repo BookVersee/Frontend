@@ -2,19 +2,30 @@ import { apiClient } from "./api";
 import { Book, Category, Shop, ApiResponse } from "../types";
 import { INITIAL_BOOKS, INITIAL_CATEGORIES, INITIAL_SHOPS } from "./mockData";
 
+let categoriesCache: Category[] | null = null;
+
 export const bookService = {
-  async getCategories(): Promise<Category[]> {
+  async getCategories(forceRefresh = false): Promise<Category[]> {
+    if (!forceRefresh && categoriesCache && categoriesCache.length > 0) {
+      return categoriesCache;
+    }
     try {
       // Gọi API lấy danh mục thực tế của Backend
       const res = await apiClient.get<ApiResponse<any[]>>("/categories/GetCategories");
-      return res.data.data.map((c: any) => ({
+      const mapped = (res.data.data || []).map((c: any) => ({
         id: c.id,
         name: c.name,
       }));
+      categoriesCache = mapped;
+      return mapped;
     } catch (error) {
       console.warn("getCategories API error, falling back to mock:", error);
       return INITIAL_CATEGORIES;
     }
+  },
+
+  clearCategoriesCache() {
+    categoriesCache = null;
   },
 
   async getBooks(search?: string, categoryId?: string | number): Promise<Book[]> {
@@ -158,6 +169,11 @@ export const bookService = {
   },
 
   async getShopProfile(shopId: string | number): Promise<Shop | null> {
+    const isGuid = typeof shopId === "string" && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(shopId.trim());
+    if (!isGuid) {
+      return INITIAL_SHOPS.find((s) => String(s.id) === String(shopId)) || INITIAL_SHOPS[0] || null;
+    }
+
     try {
       const res = await apiClient.get<ApiResponse<any>>(`/shop/GetShopProfile`, {
         params: { shopId }

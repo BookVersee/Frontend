@@ -208,6 +208,13 @@ export const Header: React.FC<HeaderProps> = ({
                   alt={user.name}
                   className="w-8 h-8 rounded-full object-cover border border-slate-700 ring-2 ring-[#c8843a]/30 shadow-xs"
                 />
+              ) : role === "shop" ? (
+                <div
+                  className="w-8 h-8 rounded-full bg-emerald-700 text-white border border-emerald-500 flex items-center justify-center font-bold text-xs shadow-xs ring-2 ring-emerald-500/20"
+                  title={user.name || "Cửa hàng Nhã Nam Books"}
+                >
+                  <BookOpen size={15} />
+                </div>
               ) : (
                 <div className="w-8 h-8 rounded-full bg-[#3d2b1a] text-[#c8843a] border border-[#523d2b] flex items-center justify-center font-bold text-xs">
                   {user.name ? user.name[0] : "U"}

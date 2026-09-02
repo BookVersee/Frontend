@@ -221,6 +221,27 @@ export interface ChatMessage {
   isFromCustomer: boolean;
   senderName?: string;
   imageUrl?: string;
+  avatar?: string;
+  messageType?: "text" | "product_card" | "order_card" | "voucher_card" | "image";
+  productData?: {
+    id: string | number;
+    title: string;
+    price: number;
+    originalPrice?: number;
+    imageUrl?: string;
+    stock?: number;
+  };
+  orderData?: {
+    orderId: string | number;
+    orderStatus: OrderStatus;
+    totalAmount: number;
+    itemCount: number;
+  };
+  voucherData?: {
+    code: string;
+    discountAmount: number;
+    minSpend: number;
+  };
 }
 
 export interface AuthResponse {

@@ -163,6 +163,7 @@ export const ShopProfilePage: React.FC<ShopProfilePageProps> = ({
         onClose={() => setChatOpen(false)}
         shopId={shop.id}
         shopName={shop.name}
+        onSelectBook={onSelectBook}
       />
     </div>
   );

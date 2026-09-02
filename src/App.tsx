@@ -204,9 +204,14 @@ const AppContent: React.FC = () => {
         isOpen={chatDrawerOpen}
         onClose={() => setChatDrawerOpen(false)}
         shopId={selectedShopId}
+        onSelectBook={(book) => {
+          setSelectedBook(book);
+          setCustomerPage("book");
+          setChatDrawerOpen(false);
+        }}
       />
 
-      <Footer />
+      {role !== "shop" && <Footer />}
     </div>
   );
 };
