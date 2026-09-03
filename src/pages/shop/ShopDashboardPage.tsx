@@ -40,8 +40,9 @@ import {
   Copy,
   ChevronDown,
   Paperclip,
-  ArrowLeft,
   GripVertical,
+  Flag,
+  ThumbsUp,
 } from "lucide-react";
 import { Order, Book, Category, OrderStatus, OrderFeedback, ChatMessage, BookImageDto, Shop } from "../../types";
 import { shopService } from "../../services/shopService";
@@ -51,19 +52,15 @@ import {
   ChatThread,
   isValidGuid,
   cleanAndDeduplicateMessages,
-  SHOP_VOUCHERS,
-  parseVoucherFromMessage,
-  ShopVoucher,
   formatProductCardText,
   parseProductFromMessage,
   cleanProductText,
 } from "../../services/chatService";
-import { VoucherTicket } from "../../components/chat/VoucherTicket";
 import { signalRService } from "../../services/signalRService";
 import { uploadService } from "../../services/uploadService";
 import { useAuth } from "../../contexts/AuthContext";
 import { orderStatusInfo } from "../../utils/status";
-import { fmt } from "../../utils/format";
+import { fmt, formatOrderCode, formatOrderDate } from "../../utils/format";
 import { Card } from "../../components/common/Card";
 import { StatCard } from "../../components/common/StatCard";
 import { Badge } from "../../components/common/Badge";
@@ -82,7 +79,7 @@ export const ShopDashboardPage: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Book[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [feedbacks, setFeedbacks] = useState<{ orderId: number; feedback: OrderFeedback }[]>([]);
+  const [feedbacks, setFeedbacks] = useState<{ orderId: string | number; feedback: OrderFeedback }[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Search & Filter in shop products
@@ -113,9 +110,15 @@ export const ShopDashboardPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Reply Feedback State
-  const [replyTextMap, setReplyTextMap] = useState<Record<number, string>>({});
-  const [submittingReply, setSubmittingReply] = useState<number | null>(null);
+  // Reply & Filter Feedback State
+  const [replyTextMap, setReplyTextMap] = useState<Record<string, string>>({});
+  const [submittingReply, setSubmittingReply] = useState<string | number | null>(null);
+  const [feedbackRatingFilter, setFeedbackRatingFilter] = useState<number | "ALL">("ALL");
+  const [feedbackResponseFilter, setFeedbackResponseFilter] = useState<"ALL" | "REPLIED" | "NO_REPLY">("ALL");
+  const [reportingFeedback, setReportingFeedback] = useState<OrderFeedback | null>(null);
+  const [reportReason, setReportReason] = useState("");
+  const [reportSuccessMsg, setReportSuccessMsg] = useState("");
+  const [reportedIds, setReportedIds] = useState<Set<string>>(new Set());
 
   // Revenue filter period
   const [revenuePeriod, setRevenuePeriod] = useState<"day" | "month" | "year">("month");
@@ -128,6 +131,12 @@ export const ShopDashboardPage: React.FC = () => {
   const [shopReplyInput, setShopReplyInput] = useState("");
   const [isSendingShopReply, setIsSendingShopReply] = useState(false);
   const [isRealTimeChatConnected, setIsRealTimeChatConnected] = useState(false);
+  const [newOrderAlert, setNewOrderAlert] = useState<{
+    id: string | number;
+    customerName: string;
+    totalAmount: number;
+    itemCount?: number;
+  } | null>(null);
   const [threadSearch, setThreadSearch] = useState("");
   const [showCustomerSidebar, setShowCustomerSidebar] = useState(true);
   const [chatFilter, setChatFilter] = useState<"all" | "unread" | "needs_reply" | "has_order">("all");
@@ -321,17 +330,19 @@ export const ShopDashboardPage: React.FC = () => {
     }
   }, [tab, currentShop?.id, user?.shopId, productsLoaded, feedbacksLoaded, chatsLoaded]);
 
-  // Khởi tạo kết nối SignalR cho Shop Dashboard
+  // Khởi tạo kết nối SignalR cho Shop Dashboard (Chat, Notifications, AppHub)
   useEffect(() => {
     let isMounted = true;
 
-    signalRService.startConnection().then((conn) => {
-      if (conn && isMounted) {
+    signalRService.startAllConnections().then(() => {
+      if (isMounted) {
         setIsRealTimeChatConnected(true);
+        signalRService.joinShop(shopId);
       }
     });
 
-    const unsubscribe = signalRService.onReceiveMessage((incomingMsg: any) => {
+    // 1. Nhận tin nhắn trong phòng chat cụ thể
+    const unsubscribeMessage = signalRService.onReceiveMessage((incomingMsg: any) => {
       if (!isMounted) return;
 
       const isFromCustomer = incomingMsg.senderId !== String(shopId);
@@ -383,6 +394,82 @@ export const ShopDashboardPage: React.FC = () => {
       );
     });
 
+    // 2. Nhận thông báo tin nhắn mới ngoài phòng chat (qua ReceiveNewMessageNotification)
+    const unsubscribeNotif = signalRService.onNewMessageNotification((notif) => {
+      if (!isMounted) return;
+      if (tab !== "chat") {
+        setRealtimeNewChatCount((c) => c + 1);
+      }
+      setChatThreads((prev) => {
+        const idx = prev.findIndex((t) => String(t.chatId) === String(notif.chatId));
+        if (idx >= 0) {
+          const updated = {
+            ...prev[idx],
+            lastMessage: notif.messagePreview,
+            unreadCount: notif.unreadCount,
+            updatedAt: "Vừa xong",
+          };
+          const copy = [...prev];
+          copy.splice(idx, 1);
+          return [updated, ...copy];
+        }
+        return prev;
+      });
+    });
+
+    // 3. Đơn hàng mới tiếp nhận từ khách hàng (Realtime NewOrderAlert)
+    const unsubscribeOrderAlert = signalRService.onNewOrderAlert((newOrderRaw: any) => {
+      if (!isMounted) return;
+
+      const orderId = newOrderRaw.id || newOrderRaw.orderId;
+      const total = Number(newOrderRaw.totalAmount) || 0;
+      const customer = newOrderRaw.recipientName || newOrderRaw.shippingAddress?.recipientName || "Khách hàng mới";
+
+      // Hiển thị banner / toast thông báo đơn hàng mới
+      setNewOrderAlert({
+        id: orderId,
+        customerName: customer,
+        totalAmount: total,
+        itemCount: newOrderRaw.orderDetails?.length || 1,
+      });
+
+      // Thêm đơn hàng mới vào đầu danh sách đơn của Shop
+      setOrders((prev) => {
+        if (prev.some((o) => String(o.id) === String(orderId))) return prev;
+        const mappedOrder: Order = {
+          id: orderId,
+          userId: newOrderRaw.userId,
+          shopId: shopId,
+          totalAmount: total,
+          orderStatus: "PENDING",
+          createdAt: newOrderRaw.createdAt || new Date().toISOString(),
+          recipientName: customer,
+          recipientPhone: newOrderRaw.recipientPhone || newOrderRaw.shippingAddress?.recipientPhone || "",
+          shippingAddress: typeof newOrderRaw.shippingAddress === "string" ? newOrderRaw.shippingAddress : (newOrderRaw.shippingAddress?.detail || "Địa chỉ giao hàng"),
+          orderDetails: newOrderRaw.orderDetails || [],
+          payments: newOrderRaw.payments || [],
+        };
+        return [mappedOrder, ...prev];
+      });
+
+      // Tự động tắt banner sau 10 giây
+      setTimeout(() => {
+        if (isMounted) setNewOrderAlert(null);
+      }, 10000);
+    });
+
+    // 4. Nhận cập nhật trạng thái đơn hàng & Vận chuyển (GHN / Cancelled)
+    const unsubscribeOrderStatus = signalRService.onOrderStatusUpdated((payload) => {
+      if (!isMounted) return;
+      setOrders((prev) =>
+        prev.map((o) =>
+          String(o.id) === String(payload.orderId)
+            ? { ...o, orderStatus: payload.newStatus as OrderStatus }
+            : o
+        )
+      );
+    });
+
     const handleLocalUpdate = () => {
       chatService.getShopConversations(shopId).then(setChatThreads);
       if (selectedThread) {
@@ -396,7 +483,10 @@ export const ShopDashboardPage: React.FC = () => {
 
     return () => {
       isMounted = false;
-      unsubscribe();
+      unsubscribeMessage();
+      unsubscribeNotif();
+      unsubscribeOrderAlert();
+      unsubscribeOrderStatus();
       window.removeEventListener("bookverse_chat_updated", handleLocalUpdate);
     };
   }, [shopId, selectedThread?.chatId, tab]);
@@ -511,35 +601,6 @@ export const ShopDashboardPage: React.FC = () => {
       setThreadMessages((prev) => cleanAndDeduplicateMessages([...prev, res.message]));
     } catch (err) {
       console.warn("Send order card error:", err);
-    } finally {
-      setIsSendingShopReply(false);
-    }
-  };
-
-  // Tặng voucher giảm giá vào chat cho khách chốt đơn
-  const handleSendVoucher = async (voucher: ShopVoucher) => {
-    if (!selectedThread || isSendingShopReply) return;
-    setIsSendingShopReply(true);
-    try {
-      const res = await chatService.sendMessage({
-        chatId: isValidGuid(selectedThread.chatId) ? selectedThread.chatId : undefined,
-        senderId: shopId,
-        receiverId: selectedThread.userId,
-        shopId,
-        text: `[VOUCHER:${voucher.code}:${voucher.discount}:${voucher.minSpend}:${voucher.label}]`,
-        isFromCustomer: false,
-        senderName: shopName,
-        messageType: "voucher_card",
-        voucherData: {
-          code: voucher.code,
-          discountAmount: voucher.discount,
-          minSpend: voucher.minSpend,
-        },
-      });
-      setThreadMessages((prev) => cleanAndDeduplicateMessages([...prev, res.message]));
-      window.dispatchEvent(new Event("bookverse_chat_updated"));
-    } catch (err) {
-      console.warn("Send voucher error:", err);
     } finally {
       setIsSendingShopReply(false);
     }
@@ -898,30 +959,50 @@ export const ShopDashboardPage: React.FC = () => {
     }
   };
 
-  const handleSendReply = async (orderId: number) => {
-    const text = replyTextMap[orderId];
+  const handleSendReply = async (feedbackId: string | number) => {
+    const key = String(feedbackId);
+    const text = replyTextMap[key];
     if (!text?.trim()) return;
-    setSubmittingReply(orderId);
+    setSubmittingReply(feedbackId);
     try {
-      await shopService.replyFeedback(orderId, text.trim());
+      await shopService.replyFeedback(feedbackId, text.trim());
       setFeedbacks((prev) =>
-        prev.map((f) =>
-          f.orderId === orderId
-            ? {
+        prev.map((f) => {
+          const currentFbId = String(f.feedback.id || f.feedback.feedbackId);
+          if (currentFbId === key) {
+            return {
               ...f,
               feedback: {
                 ...f.feedback,
                 shopReply: text.trim(),
-                shopRepliedAt: new Date().toISOString().split("T")[0],
+                shopRepliedAt: new Date().toISOString(),
               },
-            }
-            : f
-        )
+            };
+          }
+          return f;
+        })
       );
-      setReplyTextMap((prev) => ({ ...prev, [orderId]: "" }));
+      setReplyTextMap((prev) => ({ ...prev, [key]: "" }));
+    } catch (err: any) {
+      console.error("Lỗi khi gửi phản hồi đánh giá:", err);
+      alert(err.message || "Không thể gửi phản hồi. Vui lòng thử lại.");
     } finally {
       setSubmittingReply(null);
     }
+  };
+
+  const handleOpenReport = (fb: OrderFeedback) => {
+    setReportingFeedback(fb);
+    setReportReason("Nội dung đánh giá chứa từ ngữ thiếu văn minh hoặc thông tin sai lệch về sản phẩm.");
+  };
+
+  const handleSubmitReport = () => {
+    if (!reportingFeedback) return;
+    const fbId = String(reportingFeedback.id || reportingFeedback.feedbackId);
+    setReportedIds((prev) => new Set(prev).add(fbId));
+    setReportSuccessMsg(`Đã gửi báo cáo đánh giá lên Quản trị viên hệ thống để kiểm duyệt.`);
+    setReportingFeedback(null);
+    setTimeout(() => setReportSuccessMsg(""), 4500);
   };
 
   const activeProducts = products.filter((p) => p.status === "ACTIVE");
@@ -947,7 +1028,6 @@ export const ShopDashboardPage: React.FC = () => {
     { label: "🚚 Giao nhanh", text: "Dạ shop sẽ bọc chống sốc cẩn thận và gửi shipper ngay hôm nay bạn nhé!" },
     { label: "🎁 Quà tặng", text: "Dạ sách có kèm bookmark chính hãng và màng co bảo vệ của NXB bạn nhé!" },
     { label: "💬 Hỗ trợ thêm", text: "Dạ bạn cần shop tư vấn thêm về nội dung hay hình ảnh thật của cuốn sách này không ạ?" },
-    { label: "🏷️ Voucher 10k", text: "Dạ shop gửi tặng bạn voucher giảm 10.000đ khi đặt mua cuốn sách này nhé!" },
   ];
 
   // Danh sách đơn hàng của khách hàng đang chat
@@ -1105,46 +1185,7 @@ export const ShopDashboardPage: React.FC = () => {
             </div>
           </div>
 
-          {/* 2. Kho Voucher khuyến mãi của Shop (Voucher Center) */}
-          <div className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-2xs">
-            <div className="flex items-center justify-between mb-2">
-              <h5 className="font-bold text-slate-700 text-xs flex items-center gap-1">
-                <Ticket size={13} className="text-amber-600" />
-                Kho Voucher của Shop
-              </h5>
-            </div>
-            <div className="space-y-2">
-              {SHOP_VOUCHERS.map((v) => (
-                <div
-                  key={v.code}
-                  className="flex items-center justify-between p-2 rounded-xl bg-amber-50/60 border border-amber-200/80 text-xs"
-                >
-                  <div className="min-w-0">
-                    <span className="font-bold text-amber-900 font-mono block">
-                      {v.code}
-                    </span>
-                    <span className="text-[10px] text-amber-700 block">
-                      {v.label} (đơn từ {fmt(v.minSpend)})
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleSendVoucher(v);
-                      if (!isDesktop) {
-                        setMobileProfileOpen(false);
-                      }
-                    }}
-                    className="px-2 py-1 bg-amber-600 text-white rounded-lg text-[10px] font-bold hover:bg-amber-700 transition-colors shrink-0 shadow-2xs cursor-pointer"
-                  >
-                    Tặng ngay
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* 3. Danh sách đơn hàng gần đây của khách tại Shop kèm nút Share */}
+          {/* 2. Danh sách đơn hàng gần đây của khách tại Shop kèm nút Share */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <h5 className="font-bold text-slate-700 text-xs flex items-center gap-1">
@@ -1157,8 +1198,8 @@ export const ShopDashboardPage: React.FC = () => {
               <div className="bg-white rounded-2xl p-4 border border-dashed border-slate-200 text-center text-xs text-slate-400">
                 <ShoppingBag size={24} className="mx-auto text-slate-300 mb-1" />
                 Khách hàng chưa có đơn hàng nào tại Shop.
-                <p className="text-[11px] text-emerald-600 font-medium mt-1">
-                  Hãy tặng voucher để kích thích chốt đơn đầu tiên!
+                <p className="text-[11px] text-slate-500 font-medium mt-1">
+                  Hãy phản hồi nhanh để hỗ trợ khách hàng tốt nhất!
                 </p>
               </div>
             ) : (
@@ -1264,6 +1305,49 @@ export const ShopDashboardPage: React.FC = () => {
 
   return (
     <div className={`${tab === "chat" ? "w-full max-w-[1700px] h-[calc(100dvh-64px)] flex flex-col overflow-hidden px-2 sm:px-4 lg:px-6 pt-1 sm:pt-2 pb-1 sm:pb-2" : "max-w-5xl mx-auto px-4 sm:px-6 py-8"} mx-auto transition-all duration-200`}>
+      {/* Real-time New Order Alert Banner */}
+      {newOrderAlert && (
+        <div className="mb-4 p-4 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white shadow-xl shadow-emerald-900/20 border border-emerald-400/30 flex items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 animate-bounce">
+              <ShoppingBag size={20} className="text-white" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded-full bg-white/25 text-[10px] font-extrabold tracking-wider uppercase">
+                  ĐƠN HÀNG MỚI TIẾP NHẬN
+                </span>
+                <span className="text-xs text-emerald-100 font-mono">
+                  #{String(newOrderAlert.id).slice(0, 8)}
+                </span>
+              </div>
+              <p className="text-sm font-bold text-white mt-0.5 truncate">
+                Khách hàng <span className="underline decoration-emerald-300">{newOrderAlert.customerName}</span> vừa đặt đơn hàng trị giá{" "}
+                <span className="text-amber-200 font-extrabold">{fmt(newOrderAlert.totalAmount)}</span>
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => {
+                setTab("orders");
+                setNewOrderAlert(null);
+              }}
+              className="px-3.5 py-1.5 rounded-xl bg-white text-emerald-800 font-bold text-xs hover:bg-emerald-50 transition-colors shadow-sm cursor-pointer"
+            >
+              Xem ngay
+            </button>
+            <button
+              onClick={() => setNewOrderAlert(null)}
+              className="p-1.5 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              title="Đóng thông báo"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 ${tab === "chat" ? "mb-1.5 sm:mb-2 shrink-0" : "mb-8"}`}>
         <div className="min-w-0">
@@ -1327,7 +1411,7 @@ export const ShopDashboardPage: React.FC = () => {
       </div>
 
       {/* Stats Summary */}
-      {tab !== "chat" && (
+      {tab !== "chat" && tab !== "feedbacks" && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <StatCard
           label="Doanh thu thực nhận"
@@ -1389,12 +1473,14 @@ export const ShopDashboardPage: React.FC = () => {
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
                       <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-mono text-xs font-bold text-slate-400">
-                            #{order.id}
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className="font-mono text-xs font-black text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-lg border border-blue-100">
+                            {formatOrderCode(order.id)}
                           </span>
-                          <span className="text-xs text-slate-500">
-                            {order.createdAt}
+                          <span className="text-xs text-slate-300">•</span>
+                          <span className="text-xs text-slate-500 font-medium flex items-center gap-1">
+                            <Clock size={11} className="text-slate-400" />
+                            {formatOrderDate(order.createdAt)}
                           </span>
                         </div>
                         <p className="font-bold text-slate-800 text-base">
@@ -1413,13 +1499,28 @@ export const ShopDashboardPage: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="bg-slate-50 rounded-xl p-3.5 mb-4 text-xs text-slate-600 space-y-1.5">
+                    <div className="bg-slate-50 rounded-xl p-3.5 mb-4 text-xs text-slate-600 space-y-2">
                       {order.items.map((i, idx) => (
-                        <div key={idx} className="flex justify-between">
-                          <span>
-                            {i.book.title} × <strong>{i.quantity}</strong>
+                        <div key={idx} className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-8 h-11 rounded shrink-0 overflow-hidden bg-white border border-slate-200 flex items-center justify-center">
+                              {i.book.imageUrl ? (
+                                <img
+                                  src={i.book.imageUrl}
+                                  alt={i.book.title}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <BookCover book={i.book} size="sm" />
+                              )}
+                            </div>
+                            <span className="truncate font-medium text-slate-700" title={i.book.title}>
+                              {i.book.title} × <strong className="text-slate-900">{i.quantity}</strong>
+                            </span>
+                          </div>
+                          <span className="font-semibold text-slate-800 shrink-0">
+                            {fmt(i.unitPrice * i.quantity)}
                           </span>
-                          <span>{fmt(i.unitPrice * i.quantity)}</span>
                         </div>
                       ))}
                     </div>
@@ -1657,81 +1758,348 @@ export const ShopDashboardPage: React.FC = () => {
       )}
 
       {/* TAB 3: FEEDBACKS */}
-      {tab === "feedbacks" && (
-        <Card className="overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100">
-            <h2 className="font-bold text-slate-800 text-base">
-              Đánh giá từ khách hàng & Phản hồi của shop
-            </h2>
-          </div>
+      {tab === "feedbacks" && (() => {
+        const totalFeedbacks = feedbacks.length;
+        const avgRating = totalFeedbacks > 0
+          ? (feedbacks.reduce((sum, item) => sum + (item.feedback.rating || 5), 0) / totalFeedbacks).toFixed(1)
+          : "5.0";
+        const starCounts: Record<number, number> = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+        feedbacks.forEach((item) => {
+          const r = item.feedback.rating || 5;
+          starCounts[r] = (starCounts[r] || 0) + 1;
+        });
+        const unrepliedCount = feedbacks.filter((item) => !item.feedback.shopReply).length;
+        const repliedCount = feedbacks.filter((item) => !!item.feedback.shopReply).length;
 
-          <div className="divide-y divide-slate-100 p-6 space-y-4">
-            {tabLoading && feedbacks.length === 0 ? (
-              <div className="text-center py-12 px-4">
-                <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                <p className="text-xs text-slate-500 font-medium">Đang tải danh sách đánh giá...</p>
+        const filteredFeedbacks = feedbacks.filter((item) => {
+          if (feedbackRatingFilter !== "ALL" && item.feedback.rating !== feedbackRatingFilter) {
+            return false;
+          }
+          if (feedbackResponseFilter === "REPLIED" && !item.feedback.shopReply) {
+            return false;
+          }
+          if (feedbackResponseFilter === "NO_REPLY" && item.feedback.shopReply) {
+            return false;
+          }
+          return true;
+        });
+
+        return (
+          <div className="space-y-6">
+            {reportSuccessMsg && (
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs px-4 py-3 rounded-2xl flex items-center gap-2 shadow-xs animate-in fade-in">
+                <CheckCircle size={16} className="text-emerald-600 shrink-0" />
+                <span>{reportSuccessMsg}</span>
               </div>
-            ) : feedbacks.length === 0 ? (
-              <p className="text-center text-slate-400 py-8">
-                Chưa có đánh giá nào từ khách hàng.
-              </p>
-            ) : (
-              feedbacks.map((f) => (
-                <div
-                  key={f.orderId}
-                  className="p-4 bg-slate-50 rounded-2xl border border-slate-200"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-bold text-xs text-slate-800">
-                      {f.feedback.customer || f.feedback.customerName} • Đơn #{f.orderId}
-                    </span>
-                    <span className="text-xs text-amber-600 font-bold">
-                      ⭐ {f.feedback.rating}/5
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-700 mb-3">"{f.feedback.content}"</p>
+            )}
 
-                  {f.feedback.shopReply ? (
-                    <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200">
-                      <div className="flex items-center justify-between text-[11px] text-emerald-800 font-semibold mb-1">
-                        <span>Shop đã trả lời:</span>
-                        <span className="text-slate-400 font-normal">
-                          {f.feedback.shopRepliedAt}
+            {/* Khung Thống Kê Điểm Đánh Giá Cửa Hàng Chuẩn Seller Center */}
+            <Card className="p-6 bg-gradient-to-br from-white to-amber-50/30 border border-slate-200 shadow-sm rounded-3xl">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
+                {/* Điểm tổng quan */}
+                <div className="md:col-span-4 text-center md:text-left md:border-r border-slate-200/80 md:pr-6">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                    Đánh giá trung bình gian hàng
+                  </span>
+                  <div className="flex items-baseline justify-center md:justify-start gap-2 mt-2">
+                    <span className="text-4xl sm:text-5xl font-black text-slate-900 tracking-tight">
+                      {avgRating}
+                    </span>
+                    <span className="text-base text-slate-400 font-bold">/ 5.0</span>
+                  </div>
+                  <div className="flex items-center justify-center md:justify-start gap-1 text-amber-400 mt-2">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <Star
+                        key={star}
+                        size={18}
+                        className={
+                          star <= Math.round(Number(avgRating))
+                            ? "fill-amber-400 text-amber-400"
+                            : "text-slate-200 fill-slate-200"
+                        }
+                      />
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2">
+                    Dựa trên <strong>{totalFeedbacks}</strong> đánh giá thực tế từ khách mua hàng
+                  </p>
+                </div>
+
+                {/* Thanh đo phân bổ sao */}
+                <div className="md:col-span-8 space-y-2">
+                  {[5, 4, 3, 2, 1].map((s) => {
+                    const count = starCounts[s] || 0;
+                    const percent = totalFeedbacks > 0 ? Math.round((count / totalFeedbacks) * 100) : 0;
+                    return (
+                      <div key={s} className="flex items-center gap-3 text-xs">
+                        <span className="w-12 text-slate-600 font-semibold flex items-center gap-1">
+                          {s} <Star size={12} className="fill-amber-400 text-amber-400 inline" />
+                        </span>
+                        <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-amber-400 rounded-full transition-all duration-500"
+                            style={{ width: `${percent}%` }}
+                          />
+                        </div>
+                        <span className="w-14 text-right text-slate-400 text-[11px] font-medium">
+                          {count} ({percent}%)
                         </span>
                       </div>
-                      <p className="text-xs text-slate-700 italic">
-                        "{f.feedback.shopReply}"
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 mt-2">
-                      <input
-                        value={replyTextMap[f.orderId] || ""}
-                        onChange={(e) =>
-                          setReplyTextMap({
-                            ...replyTextMap,
-                            [f.orderId]: e.target.value,
-                          })
-                        }
-                        placeholder="Nhập câu trả lời cảm ơn hoặc hỗ trợ khách hàng..."
-                        className="flex-1 text-xs border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-emerald-500"
-                      />
-                      <Btn
-                        size="sm"
-                        color="#047857"
-                        disabled={submittingReply === f.orderId}
-                        onClick={() => handleSendReply(f.orderId)}
-                      >
-                        <Send size={13} /> Trả lời
-                      </Btn>
-                    </div>
-                  )}
+                    );
+                  })}
                 </div>
-              ))
-            )}
+              </div>
+            </Card>
+
+            {/* Thanh Bộ Lọc Đánh Giá */}
+            <Card className="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-3">
+              {/* Lọc theo sao */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-bold text-slate-600 mr-2 flex items-center gap-1">
+                  <Filter size={13} /> Số sao:
+                </span>
+                <button
+                  onClick={() => setFeedbackRatingFilter("ALL")}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    feedbackRatingFilter === "ALL"
+                      ? "bg-amber-500 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  Tất cả ({totalFeedbacks})
+                </button>
+                {[5, 4, 3, 2, 1].map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setFeedbackRatingFilter(s)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                      feedbackRatingFilter === s
+                        ? "bg-amber-500 text-white shadow-xs"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    {s} Sao ({starCounts[s] || 0})
+                  </button>
+                ))}
+              </div>
+
+              {/* Lọc theo trạng thái phản hồi */}
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                <span className="text-xs font-bold text-slate-600 mr-2 flex items-center gap-1">
+                  <MessageSquare size={13} /> Trạng thái:
+                </span>
+                <button
+                  onClick={() => setFeedbackResponseFilter("ALL")}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    feedbackResponseFilter === "ALL"
+                      ? "bg-emerald-700 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  Tất cả ({totalFeedbacks})
+                </button>
+                <button
+                  onClick={() => setFeedbackResponseFilter("NO_REPLY")}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    feedbackResponseFilter === "NO_REPLY"
+                      ? "bg-emerald-700 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  Chưa trả lời ({unrepliedCount})
+                </button>
+                <button
+                  onClick={() => setFeedbackResponseFilter("REPLIED")}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    feedbackResponseFilter === "REPLIED"
+                      ? "bg-emerald-700 text-white shadow-xs"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  Đã trả lời ({repliedCount})
+                </button>
+              </div>
+            </Card>
+
+            {/* Danh Sách Feedback */}
+            <Card className="overflow-hidden rounded-3xl border border-slate-200 shadow-sm">
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                <h2 className="font-bold text-slate-800 text-base flex items-center gap-2">
+                  <MessageSquare size={18} className="text-emerald-700" />
+                  Danh sách đánh giá từ khách hàng ({filteredFeedbacks.length})
+                </h2>
+              </div>
+
+              <div className="divide-y divide-slate-100 p-6 space-y-5">
+                {tabLoading && feedbacks.length === 0 ? (
+                  <div className="text-center py-16 px-4">
+                    <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                    <p className="text-xs text-slate-500 font-medium">Đang tải danh sách đánh giá từ hệ thống...</p>
+                  </div>
+                ) : filteredFeedbacks.length === 0 ? (
+                  <div className="text-center py-16 px-4">
+                    <MessageSquare size={40} className="mx-auto mb-3 text-slate-300" />
+                    <p className="text-slate-600 font-bold text-sm">Không tìm thấy đánh giá nào phù hợp bộ lọc.</p>
+                    <p className="text-slate-400 text-xs mt-1">Hãy thử chọn bộ lọc khác hoặc kiểm tra lại sau.</p>
+                  </div>
+                ) : (
+                  filteredFeedbacks.map((f) => {
+                    const fbId = String(f.feedback.id || f.feedback.feedbackId || f.orderId);
+                    const isReported = reportedIds.has(fbId);
+
+                    return (
+                      <div
+                        key={fbId}
+                        className="p-5 bg-white hover:bg-slate-50/60 transition-all rounded-2xl border border-slate-200 shadow-xs"
+                      >
+                        {/* Header của Đánh giá */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-amber-500 to-orange-400 text-white font-bold flex items-center justify-center text-xs shadow-xs">
+                              {(f.feedback.customerName || f.feedback.customer || "K")[0]}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-xs text-slate-900">
+                                  {f.feedback.customerName || f.feedback.customer || "Khách hàng"}
+                                </span>
+                                {f.feedback.type === "BOOK" ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                    <BookOpen size={10} /> Đánh giá Sách
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    <ShoppingBag size={10} /> Đánh giá Shop
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[11px] text-slate-400 font-medium">
+                                {formatOrderDate(f.feedback.createdAt)}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Sao đánh giá */}
+                          <div className="flex items-center gap-1.5 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200">
+                            <div className="flex items-center gap-0.5 text-amber-400">
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <Star
+                                  key={star}
+                                  size={13}
+                                  className={
+                                    star <= f.feedback.rating
+                                      ? "fill-amber-400 text-amber-400"
+                                      : "text-slate-200 fill-slate-200"
+                                  }
+                                />
+                              ))}
+                            </div>
+                            <span className="text-xs font-black text-amber-700">
+                              {f.feedback.rating}/5
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Sản phẩm được đánh giá */}
+                        {f.feedback.bookTitle && (
+                          <div className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-100/80 rounded-xl text-xs text-slate-700 mb-3 border border-slate-200">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <BookOpen size={14} className="text-blue-600 shrink-0" />
+                              <span className="truncate">
+                                Sản phẩm: <strong className="text-slate-900 font-semibold">{f.feedback.bookTitle}</strong>
+                              </span>
+                            </div>
+                            {f.orderId && (
+                              <span className="text-[11px] text-slate-400 font-mono shrink-0">
+                                Đơn: {formatOrderCode(f.orderId)}
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Nội dung đánh giá */}
+                        <p className="text-xs text-slate-800 leading-relaxed font-medium mb-3">
+                          "{f.feedback.content}"
+                        </p>
+
+                        {/* Ảnh đính kèm của khách nếu có */}
+                        {f.feedback.imageUrl && (
+                          <div className="mb-3">
+                            <img
+                              src={f.feedback.imageUrl}
+                              alt="Ảnh đính kèm từ khách"
+                              className="w-16 h-16 rounded-xl object-cover border border-slate-200 shadow-xs cursor-pointer hover:opacity-90"
+                              onClick={() => window.open(f.feedback.imageUrl, "_blank")}
+                            />
+                          </div>
+                        )}
+
+                        {/* Phản hồi của Shop */}
+                        {f.feedback.shopReply ? (
+                          <div className="p-3.5 bg-emerald-50/80 rounded-xl border border-emerald-200/90 shadow-2xs">
+                            <div className="flex items-center justify-between text-[11px] text-emerald-800 font-bold mb-1.5">
+                              <span className="flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                                {shopName} đã phản hồi:
+                              </span>
+                              <span className="text-slate-400 font-normal">
+                                {formatOrderDate(f.feedback.shopRepliedAt)}
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-700 italic leading-relaxed">
+                              "{f.feedback.shopReply}"
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="pt-2 border-t border-slate-100">
+                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                              <input
+                                value={replyTextMap[fbId] || ""}
+                                onChange={(e) =>
+                                  setReplyTextMap({
+                                    ...replyTextMap,
+                                    [fbId]: e.target.value,
+                                  })
+                                }
+                                placeholder="Nhập lời cảm ơn hoặc giải đáp thắc mắc cho khách hàng..."
+                                className="flex-1 text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                              />
+                              <div className="flex items-center gap-2 shrink-0">
+                                <Btn
+                                  size="sm"
+                                  color="#047857"
+                                  disabled={submittingReply === fbId}
+                                  onClick={() => handleSendReply(fbId)}
+                                  className="shadow-xs font-semibold text-xs"
+                                >
+                                  <Send size={13} /> Gửi trả lời
+                                </Btn>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenReport(f.feedback)}
+                                  disabled={isReported}
+                                  title={isReported ? "Đã gửi báo cáo" : "Báo cáo đánh giá này"}
+                                  className={`p-2 rounded-xl border transition-colors cursor-pointer ${
+                                    isReported
+                                      ? "border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed"
+                                      : "border-slate-200 text-slate-400 hover:text-red-600 hover:bg-red-50 hover:border-red-200"
+                                  }`}
+                                >
+                                  <Flag size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </Card>
           </div>
-        </Card>
-      )}
+        );
+      })()}
 
       {/* TAB 4: REAL-TIME CHAT / HỘP THƯ TƯ VẤN (CHUẨN SHOPEE SELLER WORKSPACE 3 CỘT NÂNG CAO CÓ THỂ KÉO CHUỘT ĐIỀU CHỈNH ĐỘ RỘNG) */}
       {tab === "chat" && (
@@ -2243,12 +2611,6 @@ export const ShopDashboardPage: React.FC = () => {
                                 Đơn hàng đang được Shop xử lý
                               </p>
                             </div>
-                          ) : parseVoucherFromMessage(m) ? (
-                            /* 3. Tin nhắn dạng Thẻ Voucher Vé Hoàng Kim (Voucher Ticket Card) */
-                            <VoucherTicket
-                              voucher={parseVoucherFromMessage(m)!}
-                              isShop={isShop}
-                            />
                           ) : m.imageUrl ? (
                             /* 4. Tin nhắn dạng Hình Ảnh Chụp Thật (Image Attachment - Ảnh thuần) */
                             <div className="rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white p-1 max-w-[240px]">
@@ -2859,6 +3221,57 @@ export const ShopDashboardPage: React.FC = () => {
           </Btn>
         </form>
       </Modal>
+
+      {/* Modal Báo Cáo Đánh Giá Vi Phạm */}
+      {reportingFeedback && (
+        <Modal
+          title="Báo cáo đánh giá không hợp lệ"
+          onClose={() => setReportingFeedback(null)}
+          footer={
+            <div className="flex items-center justify-end gap-2">
+              <Btn variant="outline" size="sm" onClick={() => setReportingFeedback(null)}>
+                Hủy bỏ
+              </Btn>
+              <Btn color="#dc2626" size="sm" onClick={handleSubmitReport}>
+                Gửi báo cáo lên Admin
+              </Btn>
+            </div>
+          }
+        >
+          <div className="space-y-4 text-xs">
+            <p className="text-slate-600 leading-relaxed">
+              Bạn đang yêu cầu Quản trị viên kiểm duyệt đánh giá của khách hàng:{" "}
+              <strong>"{reportingFeedback.customerName || reportingFeedback.customer || "Khách hàng"}"</strong>
+            </p>
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-slate-700 italic">
+              "{reportingFeedback.content}"
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1.5">
+                Lý do báo cáo vi phạm:
+              </label>
+              <select
+                value={reportReason}
+                onChange={(e) => setReportReason(e.target.value)}
+                className="w-full border border-slate-200 rounded-xl p-2.5 bg-white text-xs text-slate-800 focus:outline-none focus:border-red-500"
+              >
+                <option value="Nội dung đánh giá chứa từ ngữ thiếu văn minh hoặc thông tin sai lệch về sản phẩm.">
+                  Ngôn từ thô tục / Xúc phạm danh dự
+                </option>
+                <option value="Đánh giá không đúng sự thật, cố tình hạ uy tín gian hàng.">
+                  Thông tin sai lệch / Vu khống cố ý
+                </option>
+                <option value="Đánh giá quảng cáo bán hàng khác hoặc spam link lừa đảo.">
+                  Quảng cáo / Spam rác
+                </option>
+                <option value="Tiết lộ số điện thoại, địa chỉ cá nhân người khác trái phép.">
+                  Lộ thông tin cá nhân bảo mật
+                </option>
+              </select>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };

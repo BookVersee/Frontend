@@ -40,17 +40,28 @@ export const shopService = {
         customerName: o.userFullName,
         customerPhone: "",
         shopId: o.shopId || shopId || "",
-        items: (o.orderDetails || []).map((od: any) => ({
-          book: {
-            id: od.bookId,
-            title: od.bookTitle,
-            price: od.unitPrice,
-            coverColor: "#ffffff",
-            coverColor2: "#ffffff",
-          },
-          quantity: od.quantity,
-          unitPrice: od.unitPrice,
-        })),
+        items: (o.orderDetails || []).map((od: any, idx: number) => {
+          const colors = [
+            { c1: "#1e3a8a", c2: "#3b82f6" },
+            { c1: "#065f46", c2: "#10b981" },
+            { c1: "#78350f", c2: "#d97706" },
+            { c1: "#581c87", c2: "#9333ea" },
+            { c1: "#831843", c2: "#db2777" },
+          ];
+          const colorPair = colors[Math.abs(String(od.bookId || idx).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0)) % colors.length];
+          return {
+            book: {
+              id: od.bookId,
+              title: od.bookTitle,
+              price: od.unitPrice,
+              imageUrl: od.bookImage || od.BookImage || od.imageUrl || od.bookImageUrl || od.book?.imageUrl,
+              coverColor: colorPair.c1,
+              coverColor2: colorPair.c2,
+            },
+            quantity: od.quantity,
+            unitPrice: od.unitPrice,
+          };
+        }),
         totalAmount: o.totalAmount,
         shippingFee: 30000,
         orderStatus: o.orderStatus as OrderStatus,
@@ -329,12 +340,20 @@ export const shopService = {
   },
 
   // 9. Lấy danh sách đánh giá của khách hàng (GetShopFeedbacks)
-  async getShopFeedbacks(shopId?: string | number): Promise<{ orderId: string | number; feedback: OrderFeedback }[]> {
+  async getShopFeedbacks(
+    shopId?: string | number,
+    filter?: { rating?: number; hasResponse?: boolean; pageIndex?: number; pageSize?: number }
+  ): Promise<{ orderId: string | number; feedback: OrderFeedback }[]> {
     try {
       const res = await apiClient.get<ApiResponse<any>>("/shop/GetShopFeedbacks", {
-        params: { pageIndex: 1, pageSize: 50 }
+        params: {
+          pageIndex: filter?.pageIndex || 1,
+          pageSize: filter?.pageSize || 50,
+          rating: filter?.rating,
+          hasResponse: filter?.hasResponse,
+        },
       });
-      const data = res.data.data;
+      const data = res.data?.data;
       const items = data?.items || data || [];
       return items.map((f: any) => {
         const fbId = f.feedbackId || f.id;
@@ -362,7 +381,7 @@ export const shopService = {
             shopReply: responseData?.content || responseData?.responseContent,
             shopRepliedAt: responseData?.createdAt,
             shopReplyImageUrl: responseData?.imageUrl,
-          }
+          },
         };
       });
     } catch (error) {

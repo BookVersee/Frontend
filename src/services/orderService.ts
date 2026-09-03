@@ -7,22 +7,32 @@ export const orderService = {
     try {
       // Backend xác định user qua JWT token gửi kèm, gọi GetUserOrders
       const res = await apiClient.get<ApiResponse<any[]>>("/orders/GetUserOrders");
-      return res.data.data.map((o: any) => ({
+      const mappedOrders: Order[] = (res.data?.data || []).map((o: any) => ({
         id: o.id,
         customerId: o.userId,
         customerName: o.userFullName,
-        customerPhone: "",
-        items: o.orderDetails.map((od: any) => ({
-          book: {
-            id: od.bookId,
-            title: od.bookTitle,
-            price: od.unitPrice,
-            coverColor: "#ffffff",
-            coverColor2: "#ffffff",
-          },
-          quantity: od.quantity,
-          unitPrice: od.unitPrice,
-        })),
+        items: (o.orderDetails || []).map((od: any, idx: number) => {
+          const colors = [
+            { c1: "#1e3a8a", c2: "#3b82f6" },
+            { c1: "#065f46", c2: "#10b981" },
+            { c1: "#78350f", c2: "#d97706" },
+            { c1: "#581c87", c2: "#9333ea" },
+            { c1: "#831843", c2: "#db2777" },
+          ];
+          const colorPair = colors[Math.abs(String(od.bookId || idx).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0)) % colors.length];
+          return {
+            book: {
+              id: od.bookId,
+              title: od.bookTitle,
+              price: od.unitPrice,
+              imageUrl: od.bookImage || od.BookImage || od.imageUrl || od.bookImageUrl || od.book?.imageUrl,
+              coverColor: colorPair.c1,
+              coverColor2: colorPair.c2,
+            },
+            quantity: od.quantity,
+            unitPrice: od.unitPrice,
+          };
+        }),
         totalAmount: o.totalAmount,
         shippingFee: 30000,
         orderStatus: o.orderStatus,
@@ -33,6 +43,14 @@ export const orderService = {
         updatedAt: o.createdAt,
         note: o.note || "",
       }));
+
+      // Nếu có customerId, chỉ giữ lại các đơn do chính tài khoản này ĐÃ ĐẶT MUA (Tránh nhầm với các đơn bán của shop)
+      if (customerId) {
+        return mappedOrders.filter(
+          (o) => String(o.customerId).toLowerCase() === String(customerId).toLowerCase()
+        );
+      }
+      return mappedOrders;
     } catch (error) {
       console.warn("getOrders API error, falling back to mock:", error);
       return customerId
@@ -52,17 +70,28 @@ export const orderService = {
         customerId: o.userId,
         customerName: o.userFullName,
         customerPhone: "",
-        items: o.orderDetails.map((od: any) => ({
-          book: {
-            id: od.bookId,
-            title: od.bookTitle,
-            price: od.unitPrice,
-            coverColor: "#ffffff",
-            coverColor2: "#ffffff",
-          },
-          quantity: od.quantity,
-          unitPrice: od.unitPrice,
-        })),
+        items: (o.orderDetails || []).map((od: any, idx: number) => {
+          const colors = [
+            { c1: "#1e3a8a", c2: "#3b82f6" },
+            { c1: "#065f46", c2: "#10b981" },
+            { c1: "#78350f", c2: "#d97706" },
+            { c1: "#581c87", c2: "#9333ea" },
+            { c1: "#831843", c2: "#db2777" },
+          ];
+          const colorPair = colors[Math.abs(String(od.bookId || idx).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0)) % colors.length];
+          return {
+            book: {
+              id: od.bookId,
+              title: od.bookTitle,
+              price: od.unitPrice,
+              imageUrl: od.bookImage || od.BookImage || od.imageUrl || od.bookImageUrl || od.book?.imageUrl,
+              coverColor: colorPair.c1,
+              coverColor2: colorPair.c2,
+            },
+            quantity: od.quantity,
+            unitPrice: od.unitPrice,
+          };
+        }),
         totalAmount: o.totalAmount,
         shippingFee: 30000,
         orderStatus: o.orderStatus,

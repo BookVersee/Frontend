@@ -53,8 +53,17 @@ const AppContent: React.FC = () => {
 
       {/* Main Role Content */}
       <main className="flex-1">
-        {/* CUSTOMER VIEWS */}
-        {role === "customer" && customerPage === "paymentResult" && (
+        {/* SHOPPER VIEWS (HỖ TRỢ CẢ CUSTOMER VÀ SHOP ĐẶT MUA SÁCH) */}
+        {role === "shop" && customerPage === "shopDashboard" && (
+          <ProtectedRoute
+            allowedRoles={["shop"]}
+            onOpenAuth={() => setAuthModalOpen(true)}
+          >
+            <ShopDashboardPage />
+          </ProtectedRoute>
+        )}
+
+        {(role === "customer" || (role === "shop" && customerPage !== "shopDashboard")) && customerPage === "paymentResult" && (
           <PaymentResultPage
             onViewOrders={() => {
               window.history.replaceState({}, document.title, "/");
@@ -67,7 +76,7 @@ const AppContent: React.FC = () => {
           />
         )}
 
-        {role === "customer" && customerPage === "home" && (
+        {(role === "customer" || (role === "shop" && customerPage !== "shopDashboard")) && customerPage === "home" && (
           <HomePage
             onSelectBook={(book) => {
               setSelectedBook(book);
@@ -81,7 +90,7 @@ const AppContent: React.FC = () => {
           />
         )}
 
-        {role === "customer" && customerPage === "book" && (
+        {(role === "customer" || (role === "shop" && customerPage !== "shopDashboard")) && customerPage === "book" && (
           selectedBook ? (
             <BookDetailPage
               book={selectedBook}
@@ -106,7 +115,7 @@ const AppContent: React.FC = () => {
           )
         )}
 
-        {role === "customer" && customerPage === "shopProfile" && (
+        {(role === "customer" || (role === "shop" && customerPage !== "shopDashboard")) && customerPage === "shopProfile" && (
           <ShopProfilePage
             shopId={selectedShopId}
             onBack={() => setCustomerPage("home")}
@@ -117,21 +126,21 @@ const AppContent: React.FC = () => {
           />
         )}
 
-        {role === "customer" && customerPage === "cart" && (
+        {(role === "customer" || (role === "shop" && customerPage !== "shopDashboard")) && customerPage === "cart" && (
           <CartPage
             onBack={() => setCustomerPage("home")}
             onCheckout={() => setCustomerPage("checkout")}
           />
         )}
 
-        {role === "customer" && customerPage === "checkout" && (
+        {(role === "customer" || (role === "shop" && customerPage !== "shopDashboard")) && customerPage === "checkout" && (
           <CheckoutPage
             onBack={() => setCustomerPage("cart")}
             onSuccess={() => setCustomerPage("orders")}
           />
         )}
 
-        {role === "customer" && customerPage === "orders" && (
+        {(role === "customer" || (role === "shop" && customerPage !== "shopDashboard")) && customerPage === "orders" && (
           <MyOrdersPage
             onSelectOrder={(order) => {
               setSelectedOrder(order);
@@ -140,7 +149,7 @@ const AppContent: React.FC = () => {
           />
         )}
 
-        {role === "customer" && customerPage === "orderDetail" && (
+        {(role === "customer" || (role === "shop" && customerPage !== "shopDashboard")) && customerPage === "orderDetail" && (
           selectedOrder ? (
             <OrderDetailPage
               order={selectedOrder}
@@ -156,21 +165,11 @@ const AppContent: React.FC = () => {
           )
         )}
 
-        {role === "customer" && customerPage === "profile" && (
+        {(role === "customer" || (role === "shop" && customerPage !== "shopDashboard")) && customerPage === "profile" && (
           <ProfilePage
             onOpenAuth={() => setAuthModalOpen(true)}
             onGoHome={() => setCustomerPage("home")}
           />
-        )}
-
-        {/* SHOP VIEW */}
-        {role === "shop" && (
-          <ProtectedRoute
-            allowedRoles={["shop"]}
-            onOpenAuth={() => setAuthModalOpen(true)}
-          >
-            <ShopDashboardPage />
-          </ProtectedRoute>
         )}
 
         {/* ADMIN VIEW */}
@@ -211,7 +210,7 @@ const AppContent: React.FC = () => {
         }}
       />
 
-      {role !== "shop" && <Footer />}
+      {customerPage !== "shopDashboard" && role !== "admin" && role !== "deliver" && <Footer />}
     </div>
   );
 };

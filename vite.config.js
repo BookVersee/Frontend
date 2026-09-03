@@ -14,6 +14,12 @@ export default defineConfig({
         secure: false,
         rewrite: (path) => path,
       },
+      '/hubs': {
+        target: 'http://localhost:5226',
+        changeOrigin: true,
+        ws: true,
+        secure: false,
+      },
     },
   },
 });

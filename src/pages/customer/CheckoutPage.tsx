@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   X,
   AlertCircle,
+  Loader2,
 } from "lucide-react";
 import { useCart } from "../../contexts/CartContext";
 import { useAuth } from "../../contexts/AuthContext";
@@ -21,6 +22,7 @@ import { Modal } from "../../components/common/Modal";
 import { fmt } from "../../utils/format";
 import { orderService } from "../../services/orderService";
 import { paymentService, PaymentUrlResponse } from "../../services/paymentService";
+import { signalRService } from "../../services/signalRService";
 
 interface CheckoutPageProps {
   onBack: () => void;
@@ -47,6 +49,8 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
 
   // MoMo QR Modal State
   const [showMomoModal, setShowMomoModal] = useState(false);
+  const [isRealtimePaid, setIsRealtimePaid] = useState(false);
+  const [realtimeStatusMsg, setRealtimeStatusMsg] = useState("");
   const [momoPaymentData, setMomoPaymentData] = useState<{
     orderId: string | number;
     amount: number;
@@ -66,6 +70,37 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
     }
     return () => clearInterval(timer);
   }, [showMomoModal, timeLeft]);
+
+  // Lắng nghe kết quả thanh toán MoMo theo thời gian thực qua SignalR AppHub
+  useEffect(() => {
+    if (!showMomoModal || !momoPaymentData?.orderId) {
+      setIsRealtimePaid(false);
+      setRealtimeStatusMsg("");
+      return;
+    }
+
+    const orderIdStr = String(momoPaymentData.orderId);
+    signalRService.joinOrder(orderIdStr);
+
+    const unsubscribe = signalRService.onPaymentResult((payload) => {
+      if (String(payload.orderId) === orderIdStr) {
+        if (payload.isSuccess) {
+          setIsRealtimePaid(true);
+          setRealtimeStatusMsg(payload.message || "Thanh toán MoMo thành công!");
+          setTimeout(() => {
+            handleConfirmMomoPaid();
+          }, 1500);
+        } else {
+          setError(payload.message || "Giao dịch thanh toán thất bại.");
+        }
+      }
+    });
+
+    return () => {
+      signalRService.leaveOrder(orderIdStr);
+      unsubscribe();
+    };
+  }, [showMomoModal, momoPaymentData?.orderId]);
 
   const formatTimer = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -448,80 +483,105 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
           maxWidth="max-w-md"
         >
           <div className="text-center space-y-4 animate-in fade-in zoom-in-95">
-            {/* MoMo Header Banner */}
-            <div className="p-3 rounded-2xl bg-pink-50 border border-pink-200 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-[#d82d8b] text-white flex items-center justify-center font-bold text-xs">
-                  <Smartphone size={16} />
+            {isRealtimePaid ? (
+              <div className="py-8 px-4 text-center space-y-4 animate-in zoom-in-90 duration-300">
+                <div className="w-20 h-20 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-xl ring-8 ring-emerald-50 animate-bounce">
+                  <CheckCircle size={44} />
                 </div>
-                <div className="text-left">
-                  <p className="text-xs font-bold text-slate-800">Ví MoMo Sandbox</p>
-                  <p className="text-[10px] text-slate-400">Đơn hàng #{String(momoPaymentData.orderId).slice(0, 8)}</p>
+                <div>
+                  <h3 className="text-xl font-extrabold text-slate-800">Thanh toán MoMo thành công!</h3>
+                  <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto leading-relaxed">
+                    {realtimeStatusMsg || "Hệ thống đã nhận được tiền và tự động xác nhận đơn hàng theo thời gian thực."}
+                  </p>
                 </div>
-              </div>
-              <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white text-[#d82d8b] text-xs font-bold shadow-2xs border border-pink-100">
-                <Clock size={12} />
-                <span>{formatTimer(timeLeft)}</span>
-              </div>
-            </div>
-
-            {/* Total Amount Display */}
-            <div>
-              <p className="text-xs text-slate-500">Số tiền cần thanh toán:</p>
-              <p className="text-3xl font-extrabold text-[#d82d8b] tracking-tight">
-                {fmt(momoPaymentData.amount)}
-              </p>
-            </div>
-
-            {/* QR Code Container with Scanner Frame */}
-            <div className="relative inline-block p-4 bg-white rounded-3xl border-2 border-dashed border-[#d82d8b]/50 shadow-inner">
-              <img
-                src={momoPaymentData.qrUrl}
-                alt="MoMo QR Code"
-                className="w-56 h-56 mx-auto object-contain rounded-2xl"
-              />
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="w-12 h-12 rounded-xl bg-[#d82d8b] text-white flex items-center justify-center font-bold text-xs shadow-md border-2 border-white">
-                  MoMo
+                <div className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full bg-emerald-50 text-xs text-emerald-700 font-bold border border-emerald-200">
+                  <Loader2 size={15} className="animate-spin" /> Đang chuyển sang trang đơn hàng...
                 </div>
               </div>
-            </div>
+            ) : (
+              <>
+                {/* MoMo Header Banner */}
+                <div className="p-3 rounded-2xl bg-pink-50 border border-pink-200 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-[#d82d8b] text-white flex items-center justify-center font-bold text-xs">
+                      <Smartphone size={16} />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-xs font-bold text-slate-800">Ví MoMo Sandbox</p>
+                      <p className="text-[10px] text-slate-400">Đơn hàng #{String(momoPaymentData.orderId).slice(0, 8)}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-white text-[#d82d8b] text-xs font-bold shadow-2xs border border-pink-100">
+                    <Clock size={12} />
+                    <span>{formatTimer(timeLeft)}</span>
+                  </div>
+                </div>
 
-            {/* 3 Step Instructions */}
-            <div className="bg-slate-50 rounded-2xl p-3.5 text-left text-xs text-slate-600 space-y-1.5 border border-slate-100">
-              <p className="font-bold text-slate-800 text-[11px] uppercase tracking-wider mb-1 flex items-center gap-1">
-                <ShieldCheck size={13} className="text-[#d82d8b]" /> Hướng dẫn quét mã:
-              </p>
-              <p className="flex items-start gap-1.5">
-                <span className="font-bold text-[#d82d8b]">1.</span> Mở ứng dụng <strong>MoMo</strong> trên điện thoại.
-              </p>
-              <p className="flex items-start gap-1.5">
-                <span className="font-bold text-[#d82d8b]">2.</span> Chọn biểu tượng <strong>"Quét mã"</strong> tại màn hình chính.
-              </p>
-              <p className="flex items-start gap-1.5">
-                <span className="font-bold text-[#d82d8b]">3.</span> Quét mã QR ở trên và nhấn <strong>"Xác nhận thanh toán"</strong>.
-              </p>
-            </div>
+                {/* Total Amount Display */}
+                <div>
+                  <p className="text-xs text-slate-500">Số tiền cần thanh toán:</p>
+                  <p className="text-3xl font-extrabold text-[#d82d8b] tracking-tight">
+                    {fmt(momoPaymentData.amount)}
+                  </p>
+                </div>
 
-            {/* Action Buttons */}
-            <div className="space-y-2 pt-2">
-              <Btn
-                onClick={handleConfirmMomoPaid}
-                color="#d82d8b"
-                size="lg"
-                className="w-full cursor-pointer shadow-md"
-              >
-                <CheckCircle size={16} /> Đã quét mã & Xác nhận thanh toán
-              </Btn>
+                {/* QR Code Container with Scanner Frame */}
+                <div className="relative inline-block p-4 bg-white rounded-3xl border-2 border-dashed border-[#d82d8b]/50 shadow-inner">
+                  <img
+                    src={momoPaymentData.qrUrl}
+                    alt="MoMo QR Code"
+                    className="w-56 h-56 mx-auto object-contain rounded-2xl"
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="w-12 h-12 rounded-xl bg-[#d82d8b] text-white flex items-center justify-center font-bold text-xs shadow-md border-2 border-white">
+                      MoMo
+                    </div>
+                  </div>
+                </div>
 
-              <button
-                type="button"
-                onClick={() => setShowMomoModal(false)}
-                className="w-full py-2.5 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
-              >
-                Đóng / Chọn phương thức khác
-              </button>
-            </div>
+                {/* Real-time WebSocket Listening Indicator */}
+                <div className="flex items-center justify-center gap-2 text-[11px] text-emerald-700 bg-emerald-50 py-1.5 px-3 rounded-full border border-emerald-200 max-w-sm mx-auto">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                  <span className="font-semibold">Hệ thống đang tự động lắng nghe giao dịch Realtime...</span>
+                </div>
+
+                {/* 3 Step Instructions */}
+                <div className="bg-slate-50 rounded-2xl p-3.5 text-left text-xs text-slate-600 space-y-1.5 border border-slate-100">
+                  <p className="font-bold text-slate-800 text-[11px] uppercase tracking-wider mb-1 flex items-center gap-1">
+                    <ShieldCheck size={13} className="text-[#d82d8b]" /> Hướng dẫn quét mã:
+                  </p>
+                  <p className="flex items-start gap-1.5">
+                    <span className="font-bold text-[#d82d8b]">1.</span> Mở ứng dụng <strong>MoMo</strong> trên điện thoại.
+                  </p>
+                  <p className="flex items-start gap-1.5">
+                    <span className="font-bold text-[#d82d8b]">2.</span> Chọn biểu tượng <strong>"Quét mã"</strong> tại màn hình chính.
+                  </p>
+                  <p className="flex items-start gap-1.5">
+                    <span className="font-bold text-[#d82d8b]">3.</span> Quét mã QR ở trên và xác nhận thanh toán.
+                  </p>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="space-y-2 pt-2">
+                  <Btn
+                    onClick={handleConfirmMomoPaid}
+                    color="#d82d8b"
+                    size="lg"
+                    className="w-full cursor-pointer shadow-md"
+                  >
+                    <CheckCircle size={16} /> Tôi đã hoàn tất thanh toán
+                  </Btn>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowMomoModal(false)}
+                    className="w-full py-2.5 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                  >
+                    Đóng / Chọn phương thức khác
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </Modal>
       )}

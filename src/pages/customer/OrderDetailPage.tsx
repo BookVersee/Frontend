@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ArrowLeft,
   Check,
@@ -9,15 +9,18 @@ import {
   XCircle,
   AlertTriangle,
   CornerDownRight,
+  Truck,
+  BellRing,
 } from "lucide-react";
 import { Order, DeliveryStatus } from "../../types";
 import { orderStatusInfo } from "../../utils/status";
-import { fmt } from "../../utils/format";
+import { fmt, formatOrderCode, formatOrderDate } from "../../utils/format";
 import { Card } from "../../components/common/Card";
 import { Badge } from "../../components/common/Badge";
 import { Btn } from "../../components/common/Btn";
 import { BookCover } from "../../components/common/BookCover";
 import { orderService } from "../../services/orderService";
+import { signalRService } from "../../services/signalRService";
 import { useAuth } from "../../contexts/AuthContext";
 
 interface OrderDetailPageProps {
@@ -35,6 +38,45 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
   const [rating, setRating] = useState(5);
   const [reviewText, setReviewText] = useState("");
   const [reviewed, setReviewed] = useState(!!order.feedback);
+  const [realtimeUpdateBanner, setRealtimeUpdateBanner] = useState<string | null>(null);
+
+  // Lắng nghe cập nhật trạng thái đơn hàng & Vận chuyển Realtime qua SignalR
+  useEffect(() => {
+    if (!order?.id) return;
+    const orderIdStr = String(order.id);
+
+    signalRService.joinOrder(orderIdStr);
+
+    const unsubscribe = signalRService.onOrderStatusUpdated((payload) => {
+      if (String(payload.orderId) === orderIdStr) {
+        setOrder((prev) => {
+          let updatedTracking = prev.tracking;
+          if (updatedTracking) {
+            if (payload.newStatus === "DELIVERING") {
+              updatedTracking = { ...updatedTracking, status: "TRANSIT" };
+            } else if (payload.newStatus === "DELIVERED") {
+              updatedTracking = { ...updatedTracking, status: "DELIVERED" };
+            }
+          }
+          return {
+            ...prev,
+            orderStatus: payload.newStatus as any,
+            tracking: updatedTracking,
+          };
+        });
+
+        setRealtimeUpdateBanner(
+          payload.message || `Trạng thái đơn hàng vừa được cập nhật: ${payload.newStatus}`
+        );
+        setTimeout(() => setRealtimeUpdateBanner(null), 8000);
+      }
+    });
+
+    return () => {
+      signalRService.leaveOrder(orderIdStr);
+      unsubscribe();
+    };
+  }, [order?.id]);
 
   // Return modal / inputs
   const [showReturnModal, setShowReturnModal] = useState(false);
@@ -117,13 +159,45 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
         <ArrowLeft size={16} /> Danh sách đơn hàng
       </button>
 
+      {/* Real-time Order Status Update Banner */}
+      {realtimeUpdateBanner && (
+        <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white shadow-lg shadow-blue-900/20 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-3 duration-300">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0 animate-bounce">
+              <Truck size={18} className="text-white" />
+            </div>
+            <div>
+              <p className="text-[10px] font-extrabold uppercase tracking-wider text-blue-200">
+                CẬP NHẬT TRẠNG THÁI REALTIME
+              </p>
+              <p className="text-xs sm:text-sm font-bold text-white mt-0.5">
+                {realtimeUpdateBanner}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setRealtimeUpdateBanner(null)}
+            className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0"
+            title="Đóng"
+          >
+            <XCircle size={16} />
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">
-            Chi tiết đơn hàng #{order.id}
-          </h1>
-          <p className="text-xs text-slate-400 mt-1 flex items-center gap-1.5">
-            <Clock size={12} /> Đặt lúc {order.createdAt} • Shop: <strong className="text-slate-700">{order.shopName || "Nhà sách đối tác"}</strong>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">
+              Chi tiết đơn hàng
+            </h1>
+            <span className="font-mono text-base font-black text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-lg border border-blue-200">
+              {formatOrderCode(order.id)}
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-1.5 flex items-center gap-1.5 font-medium">
+            <Clock size={13} className="text-slate-400" />
+            <span>Thời gian đặt: <strong>{formatOrderDate(order.createdAt)}</strong></span>
           </p>
         </div>
         <div className="flex items-center gap-2">

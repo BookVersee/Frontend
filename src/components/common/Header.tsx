@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   BookOpen,
   ShoppingCart,
@@ -8,12 +8,15 @@ import {
   LogOut,
   Settings,
   MessageSquare,
+  Store,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useCart } from "../../contexts/CartContext";
 import { Role, CustomerPage } from "../../types";
 import { ROLE_COLORS, ROLE_LABELS } from "../../utils/status";
 import { NotificationDropdown } from "./NotificationDropdown";
+import { signalRService } from "../../services/signalRService";
+import { chatService } from "../../services/chatService";
 
 interface HeaderProps {
   customerPage: CustomerPage;
@@ -32,6 +35,51 @@ export const Header: React.FC<HeaderProps> = ({
   const { cartCount } = useCart();
   const [roleOpen, setRoleOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+
+  // Tải số lượng tin nhắn chưa đọc từ Backend API
+  const refreshUnreadChatCount = async () => {
+    if (!isAuthenticated) {
+      setUnreadChatCount(0);
+      return;
+    }
+    try {
+      const threads = await chatService.getUserConversations();
+      const total = (threads || []).reduce(
+        (sum, t) => sum + (t.unreadCount || 0),
+        0
+      );
+      setUnreadChatCount(total);
+    } catch (err) {
+      console.warn("Failed to fetch unread chat count:", err);
+    }
+  };
+
+  // Lắng nghe thông báo tin nhắn mới ngoài phòng chat & đồng bộ khi vừa vào trang
+  useEffect(() => {
+    refreshUnreadChatCount();
+
+    if (!isAuthenticated) {
+      setUnreadChatCount(0);
+      return;
+    }
+
+    signalRService.startChatConnection();
+
+    const unsubscribe = signalRService.onNewMessageNotification(() => {
+      refreshUnreadChatCount();
+    });
+
+    const handleChatUpdated = () => {
+      refreshUnreadChatCount();
+    };
+    window.addEventListener("bookverse_chat_updated", handleChatUpdated);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener("bookverse_chat_updated", handleChatUpdated);
+    };
+  }, [isAuthenticated, user?.id]);
 
   const handleRoleChange = async (newRole: Role) => {
     await switchRole(newRole);
@@ -59,7 +107,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {role === "customer" && (
+      {(role === "customer" || role === "shop") && (
         <nav className="flex items-center gap-1.5 ml-2">
           {(
             [
@@ -91,21 +139,48 @@ export const Header: React.FC<HeaderProps> = ({
               {label}
             </button>
           ))}
+
+          {/* Riêng Chủ Shop: Nút chuyển sang Kênh Người Bán (Quản lý gian hàng) */}
+          {role === "shop" && (
+            <button
+              onClick={() => setCustomerPage("shopDashboard")}
+              className={`ml-2 px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs ${
+                customerPage === "shopDashboard"
+                  ? "bg-[#c8843a] text-white shadow-md scale-102"
+                  : "bg-[#2a211c] text-[#e8ddd0] hover:bg-[#3d2b1a] hover:text-white border border-[#4a3b2c]"
+              }`}
+              title="Truy cập Kênh quản lý gian hàng & đơn bán của Shop"
+            >
+              <Store
+                size={14}
+                className={customerPage === "shopDashboard" ? "text-white" : "text-[#c8843a]"}
+              />
+              <span>Kênh người bán</span>
+            </button>
+          )}
         </nav>
       )}
 
       <div className="flex-1" />
 
-      {/* Customer Action Buttons */}
-      {role === "customer" && (
+      {/* Shopping Action Buttons (Customer & Shop) */}
+      {(role === "customer" || role === "shop") && (
         <>
           {onOpenChat && (
             <button
-              onClick={onOpenChat}
-              className="p-2.5 rounded-xl hover:bg-[#3d2b1a] transition-colors text-[#b5a898] hover:text-[#fdf9f5] cursor-pointer"
-              title="Tin nhắn với Shop"
+              onClick={() => {
+                setUnreadChatCount(0);
+                onOpenChat();
+              }}
+              className="relative p-2.5 rounded-xl hover:bg-[#3d2b1a] transition-colors text-[#b5a898] hover:text-[#fdf9f5] cursor-pointer"
+              title="Tin nhắn Hộp thư tư vấn"
             >
               <MessageSquare size={18} />
+              {unreadChatCount > 0 && (
+                <span className="absolute top-1 right-1 min-w-4 h-4 px-1 bg-red-600 text-white rounded-full text-[10px] flex items-center justify-center font-bold animate-pulse leading-none shadow-sm">
+                  {unreadChatCount}
+                </span>
+              )}
             </button>
           )}
 
@@ -129,6 +204,8 @@ export const Header: React.FC<HeaderProps> = ({
         onNavigate={(link) => {
           if (link.includes("orders")) {
             setCustomerPage("orders");
+          } else if (link.includes("chat")) {
+            if (onOpenChat) onOpenChat();
           }
         }}
       />
