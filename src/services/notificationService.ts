@@ -1,53 +1,87 @@
 import { apiClient } from "./api";
 import { AppNotification, ApiResponse } from "../types";
-import { INITIAL_NOTIFICATIONS } from "./mockData";
+
+// Quản lý danh sách thông báo đã xóa trên trình duyệt (Local Soft-Delete Persistence)
+const getDeletedIds = (userId?: string | number): Set<string> => {
+  try {
+    const key = `bookverse_deleted_notifs_${userId || "user"}`;
+    const raw = localStorage.getItem(key);
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch {
+    return new Set();
+  }
+};
+
+const addDeletedId = (id: string | number, userId?: string | number) => {
+  try {
+    const key = `bookverse_deleted_notifs_${userId || "user"}`;
+    const set = getDeletedIds(userId);
+    set.add(String(id));
+    localStorage.setItem(key, JSON.stringify(Array.from(set)));
+  } catch {}
+};
+
+const addDeletedIds = (ids: (string | number)[], userId?: string | number) => {
+  try {
+    const key = `bookverse_deleted_notifs_${userId || "user"}`;
+    const set = getDeletedIds(userId);
+    ids.forEach((id) => set.add(String(id)));
+    localStorage.setItem(key, JSON.stringify(Array.from(set)));
+  } catch {}
+};
 
 export const notificationService = {
-  // 1. Lấy toàn bộ thông báo của người dùng
+  // 1. Lấy toàn bộ thông báo từ Backend API (100% dữ liệu thật, không dùng mockData)
   async getNotifications(userId?: string | number): Promise<AppNotification[]> {
     try {
       const res = await apiClient.get<ApiResponse<any[]>>("/notifications/GetNotifications");
       const list = res.data.data || [];
-      return list.map((n: any) => ({
-        id: n.id,
-        userId: n.userId || userId || "",
-        title: n.title,
-        message: n.content || n.message,
-        read: n.isRead ?? n.read ?? false,
-        createdAt: n.createdAt,
-        type: n.type || "SYSTEM",
-        link: n.link,
-      }));
+      const deletedIds = getDeletedIds(userId);
+
+      return list
+        .filter((n: any) => !deletedIds.has(String(n.id)))
+        .map((n: any) => ({
+          id: n.id,
+          userId: n.userId || userId || "",
+          title: n.title || (n.type === "CHAT" ? "Tin nhắn mới" : "Thông báo hệ thống"),
+          message: n.content || n.message || "",
+          read: n.isRead ?? n.read ?? false,
+          createdAt: n.createdAt ? new Date(n.createdAt).toLocaleString("vi-VN") : "Vừa xong",
+          type: n.type || "SYSTEM",
+          link: n.link,
+        }));
     } catch (error) {
-      console.warn("getNotifications API error, falling back to mock:", error);
-      return userId
-        ? INITIAL_NOTIFICATIONS.filter((n) => String(n.userId) === String(userId))
-        : INITIAL_NOTIFICATIONS;
+      console.warn("[notificationService] getNotifications API error:", error);
+      return []; // Tuyệt đối không fallback mockData
     }
   },
 
-  // 2. Lấy thông báo chưa đọc
-  async getUnreadNotifications(): Promise<AppNotification[]> {
+  // 2. Lấy thông báo chưa đọc từ Backend API
+  async getUnreadNotifications(userId?: string | number): Promise<AppNotification[]> {
     try {
       const res = await apiClient.get<ApiResponse<any[]>>("/notifications/GetUnreadNotifications");
       const list = res.data.data || [];
-      return list.map((n: any) => ({
-        id: n.id,
-        userId: n.userId,
-        title: n.title,
-        message: n.content || n.message,
-        read: false,
-        createdAt: n.createdAt,
-        type: n.type || "SYSTEM",
-        link: n.link,
-      }));
+      const deletedIds = getDeletedIds(userId);
+
+      return list
+        .filter((n: any) => !deletedIds.has(String(n.id)))
+        .map((n: any) => ({
+          id: n.id,
+          userId: n.userId || userId || "",
+          title: n.title || (n.type === "CHAT" ? "Tin nhắn mới" : "Thông báo hệ thống"),
+          message: n.content || n.message || "",
+          read: false,
+          createdAt: n.createdAt ? new Date(n.createdAt).toLocaleString("vi-VN") : "Vừa xong",
+          type: n.type || "SYSTEM",
+          link: n.link,
+        }));
     } catch (error) {
-      console.warn("getUnreadNotifications API error, falling back to mock:", error);
-      return INITIAL_NOTIFICATIONS.filter((n) => !n.read);
+      console.warn("[notificationService] getUnreadNotifications API error:", error);
+      return []; // Tuyệt đối không fallback mockData
     }
   },
 
-  // 3. Đánh dấu 1 thông báo là đã đọc
+  // 3. Đánh dấu 1 thông báo cụ thể là đã đọc
   async markAsRead(id: string | number): Promise<boolean> {
     try {
       await apiClient.put("/notifications/MarkAsRead", null, {
@@ -55,9 +89,7 @@ export const notificationService = {
       });
       return true;
     } catch (error) {
-      console.warn("markAsRead API error, falling back to mock:", error);
-      const item = INITIAL_NOTIFICATIONS.find((n) => String(n.id) === String(id));
-      if (item) item.read = true;
+      console.warn("[notificationService] markAsRead API error:", error);
       return true;
     }
   },
@@ -68,9 +100,29 @@ export const notificationService = {
       await apiClient.put("/notifications/MarkAllAsRead");
       return true;
     } catch (error) {
-      console.warn("markAllAsRead API error, falling back to mock:", error);
-      INITIAL_NOTIFICATIONS.forEach((n) => { n.read = true; });
+      console.warn("[notificationService] markAllAsRead API error:", error);
       return true;
     }
+  },
+
+  // 5. Xóa 1 thông báo (Local Soft-Delete & Đề xuất gọi API Backend nếu có)
+  async deleteNotification(id: string | number, userId?: string | number): Promise<boolean> {
+    addDeletedId(id, userId);
+    try {
+      // Gọi thử API Backend nếu tương lai Backend cập nhật endpoint xóa
+      await apiClient.delete(`/notifications/DeleteNotification`, { params: { id } });
+    } catch {
+      // Backend chưa có endpoint xóa thì âm thầm lưu local soft-delete
+    }
+    return true;
+  },
+
+  // 6. Xóa tất cả thông báo hiện có
+  async deleteAllNotifications(ids: (string | number)[], userId?: string | number): Promise<boolean> {
+    addDeletedIds(ids, userId);
+    try {
+      await apiClient.delete(`/notifications/DeleteAllNotifications`);
+    } catch {}
+    return true;
   },
 };

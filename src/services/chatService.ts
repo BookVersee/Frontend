@@ -1,6 +1,7 @@
 import { apiClient } from "./api";
 import { ChatMessage, ApiResponse } from "../types";
 import { INITIAL_MESSAGES, INITIAL_SHOPS, INITIAL_BOOKS } from "./mockData";
+import { signalRService } from "./signalRService";
 
 export interface ChatThread {
   chatId: string;
@@ -20,13 +21,6 @@ export const isValidGuid = (val: any): boolean => {
   if (!val || typeof val !== "string") return false;
   return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(val.trim());
 };
-
-export interface ShopVoucher {
-  code: string;
-  label: string;
-  discount: number;
-  minSpend: number;
-}
 
 export interface ProductCardData {
   id: string | number;
@@ -190,51 +184,6 @@ export const parseProductFromMessage = (m: ChatMessage): ProductCardData | null 
   return null;
 };
 
-export const SHOP_VOUCHERS: ShopVoucher[] = [
-  { code: "BVBOOK10K", label: "Giảm 10.000đ", minSpend: 150000, discount: 10000 },
-  { code: "BVFREESHIP", label: "Freeship 30.000đ", minSpend: 200000, discount: 30000 },
-  { code: "BVVIPBOOK25", label: "Khách quen - Giảm 25.000đ", minSpend: 300000, discount: 25000 },
-];
-
-export const parseVoucherFromMessage = (m: ChatMessage): ShopVoucher | null => {
-  if (m.voucherData) {
-    return {
-      code: m.voucherData.code,
-      label: `Giảm ${m.voucherData.discountAmount.toLocaleString("vi-VN")}đ`,
-      discount: m.voucherData.discountAmount,
-      minSpend: m.voucherData.minSpend,
-    };
-  }
-
-  const text = m.text || "";
-  // 1. Parse cú pháp chuẩn [VOUCHER:code:discount:minSpend:label]
-  const match = text.match(/\[VOUCHER:([^:]+):([^:]+):([^:]+):?([^\]]*)\]/);
-  if (match) {
-    return {
-      code: match[1],
-      discount: Number(match[2]) || 10000,
-      minSpend: Number(match[3]) || 150000,
-      label: match[4] || `Giảm ${Number(match[2]).toLocaleString("vi-VN")}đ`,
-    };
-  }
-
-  // 2. Parse từ câu text: Shop gửi tặng bạn mã giảm giá BVFREESHIP (Freeship 30.000đ)!
-  const codeMatch = text.match(/(BV[A-Z0-9]+)/);
-  if (codeMatch) {
-    const code = codeMatch[1];
-    const found = SHOP_VOUCHERS.find((v) => v.code === code);
-    if (found) return found;
-    return {
-      code,
-      label: "Mã giảm giá độc quyền",
-      discount: 10000,
-      minSpend: 150000,
-    };
-  }
-
-  return null;
-};
-
 export const cleanAndDeduplicateMessages = (messages: ChatMessage[]): ChatMessage[] => {
   const result: ChatMessage[] = [];
   const seenKeys = new Set<string>();
@@ -284,12 +233,18 @@ const getStoredMessages = (): ChatMessage[] => {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed: ChatMessage[] = JSON.parse(raw);
-      return cleanAndDeduplicateMessages(parsed);
+      // Lọc bỏ triệt để các tin nhắn mock Đắc Nhân Tâm cũ nếu còn lưu trong localStorage
+      const filtered = parsed.filter(
+        (m) =>
+          !m.text?.includes("Đắc Nhân Tâm") &&
+          m.senderName !== "Nhà sách Phương Nam"
+      );
+      return cleanAndDeduplicateMessages(filtered);
     }
   } catch (e) {
     console.warn("Error reading stored chat messages:", e);
   }
-  return [...INITIAL_MESSAGES];
+  return []; // 100% dữ liệu thật từ Backend DB, tuyệt đối không dùng mockData
 };
 
 // Lưu tin nhắn vào LocalStorage
@@ -614,9 +569,22 @@ export const chatService = {
         };
       }
 
-      const res = await apiClient.post<ApiResponse<any>>("/chat/SendMessage", payload);
+      // Ưu tiên gửi qua WebSocket ChatHub để Backend kích hoạt sự kiện ReceiveNewMessageNotification cho người nhận ngoài phòng
+      let sentViaSignalR = false;
+      if (signalRService.isChatConnected()) {
+        if (!params.isFromCustomer && validUserId && resolvedShopId) {
+          sentViaSignalR = await signalRService.sendMessageToUser(validUserId, resolvedShopId, params.text, imageStr);
+        } else if (params.isFromCustomer && resolvedShopId) {
+          sentViaSignalR = await signalRService.sendMessageToShop(resolvedShopId, params.text, imageStr);
+        }
+      }
 
-      const m = res.data.data;
+      let m: any = null;
+      if (!sentViaSignalR) {
+        const res = await apiClient.post<ApiResponse<any>>("/chat/SendMessage", payload);
+        m = res.data.data;
+      }
+
       const returnedChatId = m?.chatId || params.chatId || `chat-${params.shopId}-${params.senderId}`;
 
       // Cập nhật lại ID chính thức từ Database vào LocalStorage

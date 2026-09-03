@@ -675,58 +675,6 @@ export const DEMO_USERS: User[] = [
   },
 ];
 
-export const INITIAL_NOTIFICATIONS: AppNotification[] = [
-  {
-    id: 1,
-    userId: 1,
-    title: "Đơn hàng #1002 đang giao",
-    message: "Shipper GHN đang trên đường giao đơn hàng sách của bạn.",
-    read: false,
-    createdAt: "10 phút trước",
-    type: "ORDER",
-    link: "/orders/1002",
-  },
-  {
-    id: 2,
-    userId: 1,
-    title: "Đơn hàng #1001 giao thành công",
-    message: "Đơn hàng sách đã được giao. Hãy để lại đánh giá nhé!",
-    read: true,
-    createdAt: "Hôm qua",
-    type: "ORDER",
-    link: "/orders/1001",
-  },
-  {
-    id: 3,
-    userId: 2,
-    title: "Yêu cầu hoàn tiền đã duyệt",
-    message: "Admin đã duyệt hoàn 120.000đ cho đơn hàng #1004 của bạn.",
-    read: false,
-    createdAt: "2 giờ trước",
-    type: "REFUND",
-    link: "/orders/1004",
-  },
-];
+export const INITIAL_NOTIFICATIONS: AppNotification[] = [];
 
-export const INITIAL_MESSAGES: ChatMessage[] = [
-  {
-    id: 1,
-    senderId: 1,
-    receiverId: 4,
-    shopId: 1,
-    text: "Chào shop, cuốn Đắc Nhân Tâm này là bản bìa cứng hay mềm vậy shop?",
-    createdAt: "09:15",
-    isFromCustomer: true,
-    senderName: "Nguyễn Văn An",
-  },
-  {
-    id: 2,
-    senderId: 4,
-    receiverId: 1,
-    shopId: 1,
-    text: "Dạ chào bạn An, đây là bản bìa mềm có tay gập chính hãng của NXB Tổng Hợp TP.HCM ạ!",
-    createdAt: "09:18",
-    isFromCustomer: false,
-    senderName: "Nhà sách Phương Nam",
-  },
-];
+export const INITIAL_MESSAGES: ChatMessage[] = [];

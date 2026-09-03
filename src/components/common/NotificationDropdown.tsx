@@ -1,8 +1,19 @@
 import React, { useState, useEffect } from "react";
-import { Bell, Check, CheckCheck, Clock, Package, RefreshCw, MessageSquare } from "lucide-react";
+import {
+  Bell,
+  CheckCheck,
+  Clock,
+  Package,
+  RefreshCw,
+  MessageSquare,
+  Trash2,
+} from "lucide-react";
 import { AppNotification } from "../../types";
 import { notificationService } from "../../services/notificationService";
+import { signalRService } from "../../services/signalRService";
 import { useAuth } from "../../contexts/AuthContext";
+
+import { chatService } from "../../services/chatService";
 
 interface NotificationDropdownProps {
   onNavigate?: (link: string) => void;
@@ -14,44 +25,129 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ onNa
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [isRinging, setIsRinging] = useState(false);
 
-  // Chỉ lấy số thông báo chưa đọc ban đầu (payload nhẹ)
-  useEffect(() => {
+  // Tải đồng thời thông báo hệ thống và các tin nhắn chưa đọc từ Backend API
+  const fetchCombinedNotifications = async (showLoading = false) => {
     if (!user?.id) {
       setNotifications([]);
       setUnreadCount(0);
       return;
     }
-    notificationService.getUnreadNotifications().then((unreadList) => {
-      setUnreadCount(unreadList.length);
-    });
+    if (showLoading) setLoading(true);
+
+    try {
+      // 1. Lấy thông báo hệ thống / đơn hàng từ API Backend
+      const sysNotifs = await notificationService.getNotifications(user.id);
+
+      // 2. Lấy danh sách hội thoại có tin nhắn chưa đọc từ API Chat Backend
+      let chatNotifs: AppNotification[] = [];
+      try {
+        const threads = await chatService.getUserConversations();
+        const unreadThreads = (threads || []).filter((t: any) => (t.unreadCount || 0) > 0);
+        chatNotifs = unreadThreads.map((t: any) => ({
+          id: `chat_${t.chatId}`,
+          userId: user.id,
+          title: `Tin nhắn mới từ ${t.shopName || t.userName || "Chủ Shop"}`,
+          message: t.lastMessage || "Bạn có tin nhắn mới chưa đọc",
+          read: false,
+          createdAt: t.updatedAt
+            ? new Date(t.updatedAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })
+            : "Vừa xong",
+          type: "CHAT" as const,
+          link: `/chat?chatId=${t.chatId}`,
+        }));
+      } catch (chatErr) {
+        console.warn("Failed to fetch unread chat conversations for notification:", chatErr);
+      }
+
+      const combined = [...chatNotifs, ...sysNotifs];
+      setNotifications(combined);
+      setUnreadCount(combined.filter((n) => !n.read).length);
+    } catch (e) {
+      console.warn("Failed to fetch notifications:", e);
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  };
+
+  // 1. Nạp thông báo ngay khi vào trang / đăng nhập
+  useEffect(() => {
+    fetchCombinedNotifications();
   }, [user?.id]);
 
-  // Khi người dùng bấm mở dropdown mới tải toàn bộ danh sách thông báo
+  // 2. Đăng ký nhận thông báo Realtime từ SignalR NotificationHub & ChatHub
+  useEffect(() => {
+    if (!user?.id) return;
+
+    signalRService.startNotificationConnection();
+    signalRService.startChatConnection();
+
+    // Lắng nghe thông báo hệ thống/đơn hàng từ NotificationHub
+    const unsubscribeNotif = signalRService.onReceiveNotification(() => {
+      fetchCombinedNotifications();
+      setIsRinging(true);
+      setTimeout(() => setIsRinging(false), 1500);
+    });
+
+    // Lắng nghe tin nhắn mới ngoài phòng chat từ ChatHub -> Cập nhật quả chuông ngay lập tức!
+    const unsubscribeChat = signalRService.onNewMessageNotification(() => {
+      fetchCombinedNotifications();
+      setIsRinging(true);
+      setTimeout(() => setIsRinging(false), 1500);
+    });
+
+    // Lắng nghe khi người dùng đọc tin nhắn -> Đồng bộ giảm số đếm ở Quả chuông
+    const handleChatUpdated = () => {
+      fetchCombinedNotifications();
+    };
+    window.addEventListener("bookverse_chat_updated", handleChatUpdated);
+
+    return () => {
+      unsubscribeNotif();
+      unsubscribeChat();
+      window.removeEventListener("bookverse_chat_updated", handleChatUpdated);
+    };
+  }, [user?.id]);
+
+  // 3. Khi mở dropdown tải lại để đảm bảo dữ liệu mới nhất
   useEffect(() => {
     if (isOpen && user?.id) {
-      setLoading(true);
-      notificationService
-        .getNotifications(user?.id)
-        .then((list) => {
-          setNotifications(list);
-          setUnreadCount(list.filter((n) => !n.read).length);
-        })
-        .finally(() => setLoading(false));
+      fetchCombinedNotifications(true);
     }
   }, [isOpen, user?.id]);
 
-  const handleMarkAsRead = async (id: number) => {
+  const handleMarkAsRead = async (id: string | number) => {
     await notificationService.markAsRead(id);
     setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+      prev.map((n) => (String(n.id) === String(id) ? { ...n, read: true } : n))
     );
     setUnreadCount((c) => Math.max(0, c - 1));
   };
 
   const handleMarkAllRead = async () => {
-    await notificationService.markAllAsRead(user?.id);
+    await notificationService.markAllAsRead();
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    setUnreadCount(0);
+  };
+
+  // Xóa 1 thông báo
+  const handleDeleteItem = async (e: React.MouseEvent, id: string | number) => {
+    e.stopPropagation();
+    const item = notifications.find((n) => n.id === id);
+    await notificationService.deleteNotification(id, user?.id);
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    if (item && !item.read) {
+      setUnreadCount((c) => Math.max(0, c - 1));
+    }
+  };
+
+  // Xóa tất cả thông báo
+  const handleDeleteAll = async () => {
+    if (notifications.length === 0) return;
+    const allIds = notifications.map((n) => n.id);
+    await notificationService.deleteAllNotifications(allIds, user?.id);
+    setNotifications([]);
     setUnreadCount(0);
   };
 
@@ -75,7 +171,7 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ onNa
         className="p-2.5 rounded-xl hover:bg-[#3d2b1a] transition-colors text-[#b5a898] hover:text-[#fdf9f5] cursor-pointer relative"
         title="Thông báo hệ thống"
       >
-        <Bell size={18} />
+        <Bell size={18} className={isRinging ? "animate-bounce text-[#c8843a]" : ""} />
         {unreadCount > 0 && (
           <span className="absolute top-1.5 right-1.5 min-w-4 h-4 px-1 bg-[#c8843a] text-white rounded-full text-[10px] flex items-center justify-center font-bold animate-pulse">
             {unreadCount}
@@ -101,14 +197,26 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ onNa
                   </span>
                 )}
               </div>
-              {unreadCount > 0 && (
-                <button
-                  onClick={handleMarkAllRead}
-                  className="text-[11px] text-[#c8843a] hover:text-[#fdf9f5] hover:underline flex items-center gap-1 font-semibold cursor-pointer"
-                >
-                  <CheckCheck size={13} /> Đánh dấu đã đọc
-                </button>
-              )}
+              <div className="flex items-center gap-3">
+                {unreadCount > 0 && (
+                  <button
+                    onClick={handleMarkAllRead}
+                    className="text-[11px] text-[#c8843a] hover:text-[#fdf9f5] hover:underline flex items-center gap-1 font-semibold cursor-pointer"
+                    title="Đánh dấu tất cả đã đọc"
+                  >
+                    <CheckCheck size={13} /> Đã đọc hết
+                  </button>
+                )}
+                {notifications.length > 0 && (
+                  <button
+                    onClick={handleDeleteAll}
+                    className="text-[11px] text-red-400 hover:text-red-300 hover:underline flex items-center gap-1 font-semibold cursor-pointer"
+                    title="Xóa tất cả thông báo"
+                  >
+                    <Trash2 size={12} /> Xóa tất cả
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="max-h-80 overflow-y-auto divide-y divide-[#3d2b1a]">
@@ -132,14 +240,14 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ onNa
                         setIsOpen(false);
                       }
                     }}
-                    className={`p-3.5 flex items-start gap-3 transition-colors cursor-pointer ${
+                    className={`group p-3.5 flex items-start gap-3 transition-colors cursor-pointer relative ${
                       n.read ? "bg-[#2a211c] hover:bg-[#3d2b1a]" : "bg-[#3d2b1a]/40 hover:bg-[#3d2b1a]"
                     }`}
                   >
                     <div className="p-2 rounded-xl bg-[#1c1612] border border-slate-700 shrink-0 shadow-2xs">
                       {getIcon(n.type)}
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 pr-6">
                       <p
                         className={`text-xs leading-snug line-clamp-1 ${
                           n.read ? "font-semibold text-[#e8ddd0]" : "font-bold text-[#fdf9f5]"
@@ -154,9 +262,21 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ onNa
                         {n.createdAt}
                       </span>
                     </div>
-                    {!n.read && (
-                      <span className="w-2 h-2 rounded-full bg-[#c8843a] shrink-0 mt-1.5" />
-                    )}
+
+                    <div className="flex items-center gap-1.5 shrink-0 self-center">
+                      {!n.read && (
+                        <span className="w-2 h-2 rounded-full bg-[#c8843a]" />
+                      )}
+                      {/* Nút xóa từng thông báo (Hiện khi hover) */}
+                      <button
+                        type="button"
+                        onClick={(e) => handleDeleteItem(e, n.id)}
+                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-950/40 transition-all cursor-pointer"
+                        title="Xóa thông báo này"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
                   </div>
                 ))
               )}

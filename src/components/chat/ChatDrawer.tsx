@@ -15,14 +15,8 @@ import {
   ShoppingCart,
   Check,
   ExternalLink,
-  Minus,
-  Maximize2,
-  Minimize2,
   Info,
   Package,
-  Tag,
-  Copy,
-  CheckCheck,
   Phone,
   MapPin,
   Star,
@@ -36,13 +30,10 @@ import {
   ChatThread,
   isValidGuid,
   cleanAndDeduplicateMessages,
-  parseVoucherFromMessage,
   parseProductFromMessage,
   cleanProductText,
   ProductCardData,
-  SHOP_VOUCHERS,
 } from "../../services/chatService";
-import { VoucherTicket } from "./VoucherTicket";
 import { signalRService } from "../../services/signalRService";
 import { useAuth } from "../../contexts/AuthContext";
 import { useCart } from "../../contexts/CartContext";
@@ -71,15 +62,8 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   const { user } = useAuth();
   const { addToCart } = useCart();
 
-  // Chế độ hiển thị: 'floating' (cửa sổ nổi góc phải) hoặc 'fullscreen' (toàn màn hình 3 cột)
-  const [displayMode, setDisplayMode] = useState<"floating" | "fullscreen">("floating");
-  // Trạng thái thu nhỏ thành bong bóng chat nổi góc phải
-  const [isMinimized, setIsMinimized] = useState(false);
-  // Bật/tắt Cột 3 (Hồ sơ Shop & Đơn hàng) khi ở chế độ Fullscreen
+  // Bật/tắt Cột 3 (Hồ sơ Shop & Đơn hàng)
   const [showRightSidebar, setShowRightSidebar] = useState(true);
-
-  // View mode khi ở Floating: 'list' (danh sách shop) hoặc 'detail' (chat với 1 shop)
-  const [viewMode, setViewMode] = useState<"list" | "detail">("detail");
   const [currentShopId, setCurrentShopId] = useState<string | number>(shopId);
   const [currentShopName, setCurrentShopName] = useState<string>(shopName);
   const [currentBook, setCurrentBook] = useState<Book | null | undefined>(book);
@@ -99,7 +83,6 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   // Dữ liệu cho Cột 3 (Hồ sơ Shop & Đơn hàng của khách hàng)
   const [shopProfile, setShopProfile] = useState<Shop | null>(null);
   const [shopOrders, setShopOrders] = useState<Order[]>([]);
-  const [copiedVoucher, setCopiedVoucher] = useState<string | null>(null);
 
   // Kéo chuột điều chỉnh độ rộng các cột (Resizers)
   const [col1Width, setCol1Width] = useState(() => {
@@ -262,27 +245,32 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
     await sendMessageContent(text);
   };
 
-  // Sao chép mã voucher của Shop
-  const handleCopyVoucher = (code: string) => {
-    navigator.clipboard.writeText(code);
-    setCopiedVoucher(code);
-    setTimeout(() => setCopiedVoucher(null), 2000);
-  };
-
   // Cập nhật shop khi props thay đổi
   useEffect(() => {
     if (isOpen) {
-      setIsMinimized(false);
       if (book) {
         setCurrentShopId(book.shopId);
         setCurrentShopName(book.shopName);
         setCurrentBook(book);
-        setViewMode("detail");
-      } else if (shopId) {
+      } else if (shopId && shopId !== 1 && shopId !== "1") {
         setCurrentShopId(shopId);
         setCurrentShopName(shopName);
         setCurrentBook(null);
-        setViewMode(shopId === 1 && !book ? "list" : "detail");
+      } else {
+        // Mở từ Header: Tự động ưu tiên chọn cuộc trò chuyện thực tế đầu tiên trong Database
+        setCurrentBook(null);
+        chatService.getUserConversations().then((threads) => {
+          if (threads && threads.length > 0) {
+            const first = threads[0];
+            setCurrentShopId(first.shopId);
+            setCurrentShopName(first.shopName || first.userName || "Gian hàng");
+            setActiveChatId(first.chatId);
+          } else {
+            setCurrentShopId("");
+            setCurrentShopName("");
+            setActiveChatId("");
+          }
+        });
       }
     }
   }, [isOpen, shopId, shopName, book]);
@@ -357,7 +345,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
       if (isMounted) setIsRealTimeConnected(connected);
     });
 
-    // Đăng ký nhận tin nhắn real-time
+    // Đăng ký nhận tin nhắn real-time trong phòng chat
     const registerListener =
       typeof signalRService.onReceiveMessage === "function"
         ? signalRService.onReceiveMessage.bind(signalRService)
@@ -379,6 +367,28 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
         })
       : () => {};
 
+    // Đăng ký nhận thông báo tin nhắn mới ngoài phòng chat (Cập nhật badge và preview thread)
+    const unsubscribeNotif = signalRService.onNewMessageNotification((notif) => {
+      if (isMounted) {
+        setUserThreads((prev) => {
+          const existingIdx = prev.findIndex((t) => String(t.chatId) === String(notif.chatId));
+          if (existingIdx >= 0) {
+            const updated = {
+              ...prev[existingIdx],
+              lastMessage: notif.messagePreview,
+              unreadCount: notif.unreadCount || (prev[existingIdx].unreadCount + 1),
+              updatedAt: notif.timestamp || new Date().toISOString(),
+            };
+            const copy = [...prev];
+            copy.splice(existingIdx, 1);
+            return [updated, ...copy];
+          }
+          return prev;
+        });
+        loadUserThreads();
+      }
+    });
+
     // Lắng nghe sự kiện đồng bộ giữa các tab
     const handleLocalUpdate = () => {
       chatService
@@ -393,6 +403,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
     return () => {
       isMounted = false;
       unsubscribe();
+      unsubscribeNotif();
       window.removeEventListener("bookverse_chat_updated", handleLocalUpdate);
     };
   }, [isOpen, currentShopId]);
@@ -424,7 +435,6 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
     const nextChatId = isValidGuid(thread.chatId) ? thread.chatId : undefined;
     setActiveChatId(nextChatId);
     setCurrentBook(null);
-    setViewMode("detail");
 
     // Tải tin nhắn của cuộc trò chuyện được chọn ngay lập tức
     chatService
@@ -483,48 +493,9 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   if (!isOpen) return null;
 
   // =========================================================
-  // KHI THU NHỎ THÀNH BONG BÓNG NỔI (MINIMIZED FLOATING BUBBLE)
-  // =========================================================
-  if (isMinimized) {
-    return (
-      <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2.5 p-3 bg-white/95 backdrop-blur-md border border-slate-200 shadow-2xl rounded-2xl cursor-pointer hover:shadow-blue-500/20 hover:border-blue-400 transition-all group animate-in slide-in-from-bottom-3 duration-200">
-        <button
-          type="button"
-          onClick={() => setIsMinimized(false)}
-          className="flex items-center gap-3 text-left bg-transparent border-0 cursor-pointer p-0"
-        >
-          <div className="relative">
-            <div className="w-11 h-11 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-md group-hover:scale-105 transition-transform">
-              <Store size={20} />
-            </div>
-            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full" />
-          </div>
-          <div className="min-w-0 pr-1">
-            <p className="font-bold text-xs text-slate-800 group-hover:text-blue-600 transition-colors truncate max-w-[160px]">
-              {viewMode === "detail" ? currentShopName : "Hộp thư tư vấn"}
-            </p>
-            <p className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
-              Bấm để mở lại chat
-            </p>
-          </div>
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer ml-1"
-          title="Đóng chat"
-        >
-          <X size={15} />
-        </button>
-      </div>
-    );
-  }
-
-  // =========================================================
   // SUB-COMPONENT: RENDER CỘT 1 (DANH SÁCH SHOP - INBOX LIST)
   // =========================================================
-  const renderInboxList = (showBackToDetail = false) => (
+  const renderInboxList = () => (
     <div className="flex flex-col h-full bg-slate-50">
       {/* Header List */}
       <div className="px-4 py-3.5 border-b border-slate-200 bg-white flex items-center justify-between shrink-0 shadow-2xs">
@@ -541,16 +512,6 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
             </p>
           </div>
         </div>
-
-        {showBackToDetail && (
-          <button
-            type="button"
-            onClick={() => setViewMode("detail")}
-            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
-          >
-            Quay lại <ChevronRight size={14} />
-          </button>
-        )}
       </div>
 
       {/* Search Shop Bar */}
@@ -594,16 +555,23 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-0.5">
-                    <p className={`font-bold text-xs truncate ${isCurrentActive ? "text-blue-700" : "text-slate-800"}`}>
+                    <p className={`font-bold text-xs truncate ${isCurrentActive ? "text-blue-700" : (t.unreadCount > 0 ? "text-slate-900 font-extrabold" : "text-slate-800")}`}>
                       {t.shopName || t.userName}
                     </p>
                     <span className="text-[10px] text-slate-400 shrink-0 ml-1">
                       {formatChatTime(t.updatedAt)}
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-500 truncate leading-relaxed">
-                    {t.lastMessage || "Nhấn để tiếp tục trò chuyện..."}
-                  </p>
+                  <div className="flex items-center justify-between gap-1.5">
+                    <p className={`text-[11px] truncate leading-relaxed ${t.unreadCount > 0 ? "font-bold text-slate-900" : "text-slate-500"}`}>
+                      {t.lastMessage || "Nhấn để tiếp tục trò chuyện..."}
+                    </p>
+                    {t.unreadCount > 0 && (
+                      <span className="shrink-0 min-w-4 h-4 px-1 bg-red-600 text-white rounded-full text-[10px] flex items-center justify-center font-bold animate-pulse leading-none shadow-xs">
+                        {t.unreadCount}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center self-center text-slate-300 group-hover:text-blue-600 transition-colors pl-1">
                   <ChevronRight size={14} />
@@ -619,54 +587,59 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   // =========================================================
   // SUB-COMPONENT: RENDER CỘT 2 (KHUNG CHAT CHÍNH VỚI SHOP)
   // =========================================================
-  const renderActiveChat = (isFullscreenMode: boolean) => (
-    <div className="flex flex-col h-full bg-white relative">
-      {/* Header Detail */}
-      <div className="px-4 py-3 border-b border-slate-200 bg-white flex items-center justify-between shrink-0 shadow-2xs">
-        <div className="flex items-center gap-2.5 min-w-0">
-          {!isFullscreenMode && (
-            <button
-              type="button"
-              onClick={() => setViewMode("list")}
-              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer flex items-center gap-1 text-xs font-semibold mr-1"
-              title="Danh sách tất cả gian hàng"
-            >
-              <ArrowLeft size={16} />
-            </button>
-          )}
-
-          <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold shrink-0">
-            <Store size={18} />
+  const renderActiveChat = () => {
+    if (!currentShopId) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-50">
+          <div className="w-16 h-16 rounded-3xl bg-blue-100/70 text-blue-600 flex items-center justify-center mb-3 shadow-inner">
+            <Store size={32} />
           </div>
+          <h4 className="font-extrabold text-slate-800 text-sm mb-1">
+            Chào mừng bạn đến với Hộp Thư Tư Vấn BookVerse
+          </h4>
+          <p className="text-xs text-slate-500 max-w-sm leading-relaxed">
+            Chọn một gian hàng từ danh sách bên trái hoặc bấm "Chat với Shop" từ trang chi tiết sách để bắt đầu trò chuyện trực tiếp.
+          </p>
+        </div>
+      );
+    }
 
-          <div className="min-w-0">
-            <h3 className="font-bold text-slate-800 text-xs sm:text-sm leading-tight truncate">
-              {currentShopName}
-            </h3>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[10px] text-emerald-600 font-medium">
-                Trực tuyến
-              </span>
-              <span className="text-slate-300">•</span>
-              <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                {isRealTimeConnected ? (
-                  <span className="text-emerald-600 flex items-center gap-0.5">
-                    <Wifi size={10} /> Real-time
-                  </span>
-                ) : (
-                  <span className="text-slate-400 flex items-center gap-0.5">
-                    <WifiOff size={10} /> Sẵn sàng
-                  </span>
-                )}
-              </span>
+    return (
+      <div className="flex flex-col h-full bg-white relative">
+        {/* Header Detail */}
+        <div className="px-4 py-3 border-b border-slate-200 bg-white flex items-center justify-between shrink-0 shadow-2xs">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold shrink-0">
+              <Store size={18} />
+            </div>
+
+            <div className="min-w-0">
+              <h3 className="font-bold text-slate-800 text-xs sm:text-sm leading-tight truncate">
+                {currentShopName}
+              </h3>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-[10px] text-emerald-600 font-medium">
+                  Trực tuyến
+                </span>
+                <span className="text-slate-300">•</span>
+                <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                  {isRealTimeConnected ? (
+                    <span className="text-emerald-600 flex items-center gap-0.5">
+                      <Wifi size={10} /> Real-time
+                    </span>
+                  ) : (
+                    <span className="text-slate-400 flex items-center gap-0.5">
+                      <WifiOff size={10} /> Sẵn sàng
+                    </span>
+                  )}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Nút điều khiển bên phải của Header Cột 2 */}
-        <div className="flex items-center gap-1">
-          {isFullscreenMode ? (
+          {/* Nút điều khiển bên phải của Header Cột 2 */}
+          <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={() => setShowRightSidebar(!showRightSidebar)}
@@ -680,36 +653,8 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
               <Info size={14} />
               <span className="hidden sm:inline">Hồ sơ & Đơn hàng</span>
             </button>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => setIsMinimized(true)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-                title="Thu nhỏ xuống góc màn hình"
-              >
-                <Minus size={16} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setDisplayMode("fullscreen")}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer hidden sm:block"
-                title="Bung toàn màn hình 3 cột"
-              >
-                <Maximize2 size={16} />
-              </button>
-              <button
-                type="button"
-                onClick={onClose}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-                title="Đóng chat"
-              >
-                <X size={17} />
-              </button>
-            </>
-          )}
+          </div>
         </div>
-      </div>
 
       {/* Sticky Book Preview Card if chatting about a specific book */}
       {currentBook && (
@@ -742,7 +687,6 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
         {cleanAndDeduplicateMessages(messages).map((m, idx) => {
           const isMe = user?.role === "customer" ? m.isFromCustomer : !m.isFromCustomer;
           const product = parseProductFromMessage(m);
-          const voucher = parseVoucherFromMessage(m);
 
           return (
             <div
@@ -864,8 +808,6 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
                     </button>
                   </div>
                 </div>
-              ) : voucher ? (
-                <VoucherTicket voucher={voucher} isShop={false} />
               ) : m.imageUrl ? (
                 <div className="rounded-2xl overflow-hidden border border-slate-200 bg-white p-1 max-w-[240px] shadow-xs">
                   <img
@@ -972,6 +914,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
       </form>
     </div>
   );
+};
 
   // =========================================================
   // SUB-COMPONENT: RENDER CỘT 3 (HỒ SƠ SHOP & ĐƠN HÀNG CỦA TÔI)
@@ -1043,59 +986,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
           </div>
         </div>
 
-        {/* Card 2: Kho Voucher Độc Quyền Của Shop */}
-        <div className="bg-white rounded-2xl p-3.5 border border-slate-200/90 shadow-2xs">
-          <div className="flex items-center justify-between mb-2.5">
-            <div className="flex items-center gap-1.5">
-              <Tag size={15} className="text-amber-600" />
-              <h5 className="font-extrabold text-xs text-slate-800">
-                Kho Voucher của Shop
-              </h5>
-            </div>
-            <span className="text-[10px] text-slate-400">
-              {SHOP_VOUCHERS.length} mã khả dụng
-            </span>
-          </div>
-
-          <div className="space-y-2">
-            {SHOP_VOUCHERS.map((v) => (
-              <div
-                key={v.code}
-                className="p-2.5 rounded-xl border border-amber-200/80 bg-linear-to-r from-amber-50/70 to-orange-50/40 flex items-center justify-between gap-2"
-              >
-                <div>
-                  <span className="font-black text-xs text-amber-800 font-mono tracking-wider block">
-                    {v.code}
-                  </span>
-                  <p className="text-[10px] text-slate-600 mt-0.2">
-                    {v.label} (Đơn từ {fmt(v.minSpend)})
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleCopyVoucher(v.code)}
-                  className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer shrink-0 ${
-                    copiedVoucher === v.code
-                      ? "bg-emerald-600 text-white"
-                      : "bg-amber-600 hover:bg-amber-700 text-white shadow-2xs"
-                  }`}
-                >
-                  {copiedVoucher === v.code ? (
-                    <>
-                      <CheckCheck size={11} /> Đã chép
-                    </>
-                  ) : (
-                    <>
-                      <Copy size={11} /> Lưu mã
-                    </>
-                  )}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Card 3: Đơn Hàng Của Tôi Tại Shop Này */}
+        {/* Card: Đơn Hàng Của Tôi Tại Shop Này */}
         <div className="bg-white rounded-2xl p-3.5 border border-slate-200/90 shadow-2xs">
           <div className="flex items-center justify-between mb-2.5">
             <div className="flex items-center gap-1.5">
@@ -1163,141 +1054,91 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   );
 
   // =========================================================
-  // CHẾ ĐỘ 1: TOÀN MÀN HÌNH 3 CỘT (FULLSCREEN 3-COLUMN CHAT HUB)
+  // GIAO DIỆN CHAT 3 CỘT TOÀN MÀN HÌNH (BOOKVERSE CHAT HUB)
   // =========================================================
-  if (displayMode === "fullscreen") {
-    return (
-      <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex flex-col animate-in fade-in duration-200">
-        <div className="w-full h-full bg-white flex flex-col overflow-hidden">
-          {/* TOP BAR: HEADER TOÀN CỤC CHO FULLSCREEN */}
-          <div className="h-14 px-5 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 shadow-2xs z-10">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center font-black text-sm shadow-xs">
-                BV
-              </div>
-              <div>
-                <h2 className="font-extrabold text-sm sm:text-base text-slate-800 flex items-center gap-2">
-                  <span>Trung Tâm Hộp Thư Tư Vấn</span>
-                  <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-bold border border-blue-200 hidden sm:inline-block">
-                    BookVerse Chat Hub
-                  </span>
-                </h2>
-                <p className="text-[11px] text-slate-400 hidden sm:block">
-                  Trao đổi trực tiếp, nhận voucher độc quyền và theo dõi đơn hàng với các nhà sách
-                </p>
-              </div>
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex flex-col animate-in fade-in duration-200">
+      <div className="w-full h-full bg-white flex flex-col overflow-hidden">
+        {/* TOP BAR: HEADER TOÀN CỤC */}
+        <div className="h-14 px-5 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 shadow-2xs z-10">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center font-black text-sm shadow-xs">
+              BV
             </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setDisplayMode("floating")}
-                className="px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
-                title="Thu nhỏ về cửa sổ góc phải"
-              >
-                <Minimize2 size={15} /> Thu nhỏ
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsMinimized(true)}
-                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-                title="Thu nhỏ thành bong bóng"
-              >
-                <Minus size={16} />
-              </button>
-              <button
-                type="button"
-                onClick={onClose}
-                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-                title="Đóng chat"
-              >
-                <X size={18} />
-              </button>
+            <div>
+              <h2 className="font-extrabold text-sm sm:text-base text-slate-800 flex items-center gap-2">
+                <span>Trung Tâm Hộp Thư Tư Vấn</span>
+                <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-bold border border-blue-200 hidden sm:inline-block">
+                  BookVerse Chat Hub
+                </span>
+              </h2>
+              <p className="text-[11px] text-slate-400 hidden sm:block">
+                Trao đổi trực tiếp và theo dõi đơn hàng với các nhà sách
+              </p>
             </div>
           </div>
 
-          {/* MAIN 3-COLUMN CONTAINER CÓ THANH KÉO RESIZERS */}
-          <div
-            ref={chatContainerRef}
-            className="flex-1 flex flex-row min-h-0 relative bg-slate-100 overflow-hidden"
-          >
-            {/* CỘT 1: DANH SÁCH CÁC GIAN HÀNG (INBOX LIST) */}
-            <div
-              style={{ width: col1Width }}
-              className="shrink-0 h-full border-r border-slate-200 bg-white flex flex-col overflow-hidden"
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              title="Đóng chat"
             >
-              {renderInboxList(false)}
-            </div>
-
-            {/* RESIZER 1 GIỮA CỘT 1 VÀ CỘT 2 */}
-            <div
-              onMouseDown={() => setIsDraggingCol1(true)}
-              className="w-1.5 hover:w-2 hover:bg-blue-500 active:bg-blue-600 bg-slate-200/80 cursor-col-resize transition-all shrink-0 relative group flex items-center justify-center z-10"
-              title="Kéo chuột để thay đổi độ rộng danh sách shop"
-            >
-              <div className="w-0.5 h-6 bg-slate-400 group-hover:bg-white rounded-full transition-colors" />
-            </div>
-
-            {/* CỘT 2: KHUNG CHAT CHÍNH VỚI SHOP */}
-            <div className="flex-1 h-full min-w-0 flex flex-col bg-white overflow-hidden">
-              {renderActiveChat(true)}
-            </div>
-
-            {/* RESIZER 2 GIỮA CỘT 2 VÀ CỘT 3 */}
-            {showRightSidebar && (
-              <div
-                onMouseDown={() => setIsDraggingCol3(true)}
-                className="w-1.5 hover:w-2 hover:bg-blue-500 active:bg-blue-600 bg-slate-200/80 cursor-col-resize transition-all shrink-0 relative group flex items-center justify-center z-10"
-                title="Kéo chuột để thay đổi độ rộng hồ sơ shop"
-              >
-                <div className="w-0.5 h-6 bg-slate-400 group-hover:bg-white rounded-full transition-colors" />
-              </div>
-            )}
-
-            {/* CỘT 3: HỒ SƠ SHOP & ĐƠN HÀNG CỦA TÔI TẠI SHOP */}
-            {showRightSidebar && (
-              <div
-                style={{ width: col3Width }}
-                className="shrink-0 h-full border-l border-slate-200 bg-slate-50 flex flex-col overflow-hidden"
-              >
-                {renderShopProfileAndOrders()}
-              </div>
-            )}
+              <X size={18} />
+            </button>
           </div>
         </div>
 
-        {/* Modal phóng to xem ảnh thực tế của sách */}
-        {previewModalImage && (
+        {/* MAIN 3-COLUMN CONTAINER CÓ THANH KÉO RESIZERS */}
+        <div
+          ref={chatContainerRef}
+          className="flex-1 flex flex-row min-h-0 relative bg-slate-100 overflow-hidden"
+        >
+          {/* CỘT 1: DANH SÁCH CÁC GIAN HÀNG (INBOX LIST) */}
           <div
-            onClick={() => setPreviewModalImage(null)}
-            className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in"
+            style={{ width: col1Width }}
+            className="shrink-0 h-full border-r border-slate-200 bg-white flex flex-col overflow-hidden"
           >
-            <div className="relative max-w-2xl max-h-[90vh] bg-white rounded-2xl overflow-hidden p-2 shadow-2xl">
-              <button
-                type="button"
-                onClick={() => setPreviewModalImage(null)}
-                className="absolute top-3 right-3 p-1.5 bg-black/60 text-white rounded-full hover:bg-black transition-colors cursor-pointer z-10"
-              >
-                <X size={18} />
-              </button>
-              <img
-                src={previewModalImage}
-                alt="Ảnh chi tiết sách"
-                className="w-full h-auto max-h-[80vh] object-contain rounded-xl"
-              />
-            </div>
+            {renderInboxList()}
           </div>
-        )}
-      </div>
-    );
-  }
 
-  // =========================================================
-  // CHẾ ĐỘ 2: CỬA SỔ NỔI GÓC PHẢI (FLOATING WINDOW COMPACT)
-  // =========================================================
-  return (
-    <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 w-[calc(100vw-32px)] sm:w-[430px] h-[calc(100dvh-32px)] sm:h-[620px] sm:max-h-[85vh] bg-white rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200/90 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200">
-      {viewMode === "list" ? renderInboxList(true) : renderActiveChat(false)}
+          {/* RESIZER 1 GIỮA CỘT 1 VÀ CỘT 2 */}
+          <div
+            onMouseDown={() => setIsDraggingCol1(true)}
+            className="w-1.5 hover:w-2 hover:bg-blue-500 active:bg-blue-600 bg-slate-200/80 cursor-col-resize transition-all shrink-0 relative group flex items-center justify-center z-10"
+            title="Kéo chuột để thay đổi độ rộng danh sách shop"
+          >
+            <div className="w-0.5 h-6 bg-slate-400 group-hover:bg-white rounded-full transition-colors" />
+          </div>
+
+          {/* CỘT 2: KHUNG CHAT CHÍNH VỚI SHOP */}
+          <div className="flex-1 h-full min-w-0 flex flex-col bg-white overflow-hidden">
+            {renderActiveChat()}
+          </div>
+
+          {/* RESIZER 2 GIỮA CỘT 2 VÀ CỘT 3 */}
+          {showRightSidebar && (
+            <div
+              onMouseDown={() => setIsDraggingCol3(true)}
+              className="w-1.5 hover:w-2 hover:bg-blue-500 active:bg-blue-600 bg-slate-200/80 cursor-col-resize transition-all shrink-0 relative group flex items-center justify-center z-10"
+              title="Kéo chuột để thay đổi độ rộng hồ sơ shop"
+            >
+              <div className="w-0.5 h-6 bg-slate-400 group-hover:bg-white rounded-full transition-colors" />
+            </div>
+          )}
+
+          {/* CỘT 3: HỒ SƠ SHOP & ĐƠN HÀNG CỦA TÔI TẠI SHOP */}
+          {showRightSidebar && (
+            <div
+              style={{ width: col3Width }}
+              className="shrink-0 h-full border-l border-slate-200 bg-slate-50 flex flex-col overflow-hidden"
+            >
+              {renderShopProfileAndOrders()}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Modal phóng to xem ảnh thực tế của sách */}
       {previewModalImage && (
