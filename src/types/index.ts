@@ -259,7 +259,8 @@ export type CustomerPage =
   | "orderDetail"
   | "profile"
   | "shopProfile"
-  | "paymentResult";
+  | "paymentResult"
+  | "shopDashboard";
 
 export interface ApiResponse<T> {
   success: boolean;
@@ -279,3 +280,29 @@ export interface ImageUploadItem {
   url: string;
   publicId: string;
 }
+
+// Realtime SignalR Payloads
+export interface NewMessageNotificationPayload {
+  chatId: string;
+  senderId: string;
+  senderName: string;
+  messagePreview: string;
+  timestamp: string;
+  unreadCount: number;
+}
+
+export interface OrderStatusUpdatedPayload {
+  orderId: string;
+  newStatus: OrderStatus | string;
+  message: string;
+  updatedAt: string;
+}
+
+export interface PaymentResultPayload {
+  orderId: string;
+  isSuccess: boolean;
+  message: string;
+  transactionCode?: string;
+}
+
+export interface NewOrderAlertPayload extends Order {}

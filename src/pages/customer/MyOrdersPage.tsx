@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { Truck, Package, Clock } from "lucide-react";
+import { Truck, Package, Clock, ChevronRight, Store, Copy, Check } from "lucide-react";
 import { Order, OrderStatus } from "../../types";
 import { orderService } from "../../services/orderService";
+import { signalRService } from "../../services/signalRService";
 import { useAuth } from "../../contexts/AuthContext";
 import { orderStatusInfo } from "../../utils/status";
-import { fmt } from "../../utils/format";
+import { fmt, formatOrderCode, formatOrderDate } from "../../utils/format";
 import { Card } from "../../components/common/Card";
 import { Badge } from "../../components/common/Badge";
 import { BookCover } from "../../components/common/BookCover";
@@ -27,6 +28,22 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({
       .getOrders(user?.id || 1)
       .then(setOrders)
       .finally(() => setLoading(false));
+
+    // Lắng nghe cập nhật trạng thái đơn hàng Realtime
+    signalRService.startAppConnection();
+    const unsubscribe = signalRService.onOrderStatusUpdated((payload) => {
+      setOrders((prev) =>
+        prev.map((o) =>
+          String(o.id) === String(payload.orderId)
+            ? { ...o, orderStatus: payload.newStatus as OrderStatus }
+            : o
+        )
+      );
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, [user?.id]);
 
   const tabs: { key: "ALL" | OrderStatus; label: string }[] = [
@@ -115,15 +132,17 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({
                 onClick={() => onSelectOrder(order)}
                 className="w-full text-left cursor-pointer group"
               >
-                <Card className="p-5 hover:shadow-md hover:border-blue-300 transition-all">
-                  <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2.5">
+                <Card className="p-5 hover:shadow-md hover:border-blue-300 transition-all rounded-2xl">
+                  {/* Card Header: Mã đơn ngắn gọn & Thời gian chuẩn */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3.5 border-b border-slate-100 pb-2.5">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono font-bold text-slate-500">
-                        #{order.id}
+                      <span className="text-xs font-mono font-black text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-lg border border-blue-200">
+                        {formatOrderCode(order.id)}
                       </span>
                       <span className="text-xs text-slate-300">•</span>
-                      <span className="text-xs text-slate-400 flex items-center gap-1">
-                        <Clock size={11} /> {order.createdAt}
+                      <span className="text-xs text-slate-500 flex items-center gap-1 font-medium">
+                        <Clock size={12} className="text-slate-400" />
+                        {formatOrderDate(order.createdAt)}
                       </span>
                     </div>
                     <Badge
@@ -134,51 +153,48 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({
                     />
                   </div>
 
-                  <div className="flex gap-4 items-center">
-                    <div className="flex gap-1.5 shrink-0">
-                      {order.items.slice(0, 2).map((item) => (
-                        <BookCover
-                          key={item.book.id}
-                          book={item.book}
-                          size="sm"
-                        />
-                      ))}
-                      {order.items.length > 2 && (
-                        <div className="w-14 h-20 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-500 text-xs font-bold">
-                          +{order.items.length - 2}
+                  {/* Danh sách sách trong đơn */}
+                  <div className="space-y-3">
+                    {order.items.map((item, idx) => (
+                      <div key={idx} className="flex items-center gap-3.5">
+                        <div className="shrink-0 w-12 h-16 rounded-lg overflow-hidden shadow-2xs border border-slate-200 bg-slate-100 flex items-center justify-center">
+                          {item.book.imageUrl ? (
+                            <img
+                              src={item.book.imageUrl}
+                              alt={item.book.title}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <BookCover book={item.book} size="sm" />
+                          )}
                         </div>
-                      )}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-slate-800 line-clamp-1 group-hover:text-blue-600 transition-colors">
-                        {order.items.map((i) => i.book.title).join(", ")}
-                      </p>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Shop: <strong className="text-slate-700">{order.shopName || "Nhà sách đối tác"}</strong> • {order.items.reduce((s, i) => s + i.quantity, 0)} cuốn sách
-                      </p>
-                      <p className="text-base font-extrabold text-blue-600 mt-2">
-                        {fmt(order.totalAmount + order.shippingFee)}
-                      </p>
-                    </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs sm:text-sm font-bold text-slate-800 line-clamp-1 group-hover:text-blue-600 transition-colors">
+                            {item.book.title}
+                          </p>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            Số lượng: <span className="font-semibold text-slate-700">x{item.quantity}</span>
+                            <span className="text-slate-300 mx-1.5">•</span>
+                            <span>{fmt(item.unitPrice)}</span>
+                          </p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
 
-                  {order.tracking && (
-                    <div className="mt-3.5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-                      <div className="flex items-center gap-1.5">
-                        <Truck size={13} className="text-blue-600" />
-                        <span>
-                          Vận đơn:{" "}
-                          <span className="font-mono font-bold text-slate-700">
-                            {order.tracking.number}
-                          </span>
-                        </span>
-                      </div>
-                      <span className="text-[11px] text-blue-600 font-semibold group-hover:underline">
-                        Xem chi tiết & theo dõi →
+                  {/* Card Footer: Tổng tiền & Xem chi tiết */}
+                  <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                    <div className="text-xs text-slate-500">
+                      Tổng thanh toán:{" "}
+                      <span className="text-sm sm:text-base font-black text-blue-700">
+                        {fmt(order.totalAmount)}
                       </span>
                     </div>
-                  )}
+                    <div className="text-xs font-bold text-blue-600 flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
+                      <span>Xem chi tiết</span>
+                      <ChevronRight size={14} />
+                    </div>
+                  </div>
                 </Card>
               </button>
             );
