@@ -255,8 +255,12 @@ export const orderService = {
         params: { id: orderId }
       });
       return true;
-    } catch (error) {
-      console.warn("cancelOrder API error, falling back to mock:", error);
+    } catch (error: any) {
+      console.warn("cancelOrder API error:", error);
+      const msg = error?.response?.data?.message || "Không thể hủy đơn hàng này.";
+      if (error?.response?.status === 400 || error?.response?.status === 403) {
+        throw new Error(msg);
+      }
       const order = INITIAL_ORDERS.find((o) => String(o.id) === String(orderId));
       if (order && (order.orderStatus === "PENDING" || order.orderStatus === "PAID")) {
         order.orderStatus = "CANCELLED";
@@ -265,7 +269,7 @@ export const orderService = {
         }
         return true;
       }
-      return false;
+      throw new Error(msg);
     }
   },
 

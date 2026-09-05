@@ -146,6 +146,10 @@ const AppContent: React.FC = () => {
               setSelectedOrder(order);
               setCustomerPage("orderDetail");
             }}
+            onOpenChat={(shopId) => {
+              if (shopId) setSelectedShopId(shopId);
+              setChatDrawerOpen(true);
+            }}
           />
         )}
 
@@ -154,12 +158,20 @@ const AppContent: React.FC = () => {
             <OrderDetailPage
               order={selectedOrder}
               onBack={() => setCustomerPage("orders")}
+              onOpenChat={(shopId) => {
+                if (shopId) setSelectedShopId(shopId);
+                setChatDrawerOpen(true);
+              }}
             />
           ) : (
             <MyOrdersPage
               onSelectOrder={(order) => {
                 setSelectedOrder(order);
                 setCustomerPage("orderDetail");
+              }}
+              onOpenChat={(shopId) => {
+                if (shopId) setSelectedShopId(shopId);
+                setChatDrawerOpen(true);
               }}
             />
           )

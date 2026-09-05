@@ -11,6 +11,8 @@ import {
   CornerDownRight,
   Truck,
   BellRing,
+  MessageSquare,
+  Info,
 } from "lucide-react";
 import { Order, DeliveryStatus } from "../../types";
 import { orderStatusInfo } from "../../utils/status";
@@ -26,11 +28,13 @@ import { useAuth } from "../../contexts/AuthContext";
 interface OrderDetailPageProps {
   order: Order;
   onBack: () => void;
+  onOpenChat?: (shopId?: number | string) => void;
 }
 
 export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
   order: initialOrder,
   onBack,
+  onOpenChat,
 }) => {
   const { user } = useAuth();
   const [order, setOrder] = useState<Order>(initialOrder);
@@ -87,6 +91,10 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
   // Cancel order modal
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState("Đổi ý không muốn mua nữa");
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
+  // Modal yêu cầu hủy đơn PROCESSING
+  const [showContactShopModal, setShowContactShopModal] = useState(false);
 
   const si = orderStatusInfo(order.orderStatus);
   const steps = ["Chờ lấy hàng", "Đang vận chuyển", "Đang giao", "Đã giao"];
@@ -101,13 +109,18 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
     : -1;
 
   const handleCancelOrder = async () => {
-    await orderService.cancelOrder(order.id, cancelReason);
-    setOrder((prev) => ({
-      ...prev,
-      orderStatus: "CANCELLED",
-      paymentStatus: prev.paymentStatus === "PAID" ? "REFUNDED" : "UNPAID",
-    }));
-    setShowCancelModal(false);
+    try {
+      setCancelError(null);
+      await orderService.cancelOrder(order.id, cancelReason);
+      setOrder((prev) => ({
+        ...prev,
+        orderStatus: "CANCELLED",
+        paymentStatus: prev.paymentStatus === "PAID" ? "REFUNDED" : "UNPAID",
+      }));
+      setShowCancelModal(false);
+    } catch (err: any) {
+      setCancelError(err.message || "Không thể hủy đơn hàng này.");
+    }
   };
 
   const handleSubmitReview = async () => {
@@ -206,10 +219,24 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
             <Btn
               variant="outline"
               size="sm"
-              onClick={() => setShowCancelModal(true)}
+              onClick={() => {
+                setShowCancelModal(true);
+                setCancelError(null);
+              }}
               className="text-red-600 hover:border-red-400"
             >
               <XCircle size={14} /> Hủy đơn hàng
+            </Btn>
+          )}
+
+          {order.orderStatus === "PROCESSING" && (
+            <Btn
+              variant="outline"
+              size="sm"
+              onClick={() => setShowContactShopModal(true)}
+              className="text-slate-600 hover:text-blue-600 hover:border-blue-200"
+            >
+              <MessageSquare size={14} /> Yêu cầu hủy
             </Btn>
           )}
         </div>
@@ -603,12 +630,18 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
             <div className="flex items-center gap-3 mb-3 text-red-600">
               <AlertTriangle size={24} />
               <h3 className="font-bold text-slate-800 text-base">
-                Xác nhận hủy đơn hàng #{order.id}
+                Xác nhận hủy đơn hàng #{formatOrderCode(order.id)}
               </h3>
             </div>
-            <p className="text-xs text-slate-500 mb-4">
-              Bạn có chắc chắn muốn hủy đơn hàng này không? Tiền thanh toán trực tuyến (nếu có) sẽ được hoàn về ví tài khoản.
+            <p className="text-xs text-slate-500 mb-3">
+              Bạn có chắc chắn muốn hủy đơn hàng này không? Tồn kho sản phẩm sẽ được tự động hoàn trả lại cho cửa hàng.
             </p>
+
+            {cancelError && (
+              <div className="p-3 mb-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium">
+                {cancelError}
+              </div>
+            )}
 
             <div className="mb-4">
               <label className="block text-xs font-semibold text-slate-600 mb-1">
@@ -621,7 +654,9 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
               >
                 <option value="Đổi ý không muốn mua nữa">Đổi ý không muốn mua nữa</option>
                 <option value="Muốn thay đổi địa chỉ giao hàng">Muốn thay đổi địa chỉ giao hàng</option>
+                <option value="Muốn đổi sách hoặc thêm mã giảm giá">Muốn đổi sách hoặc thêm mã giảm giá</option>
                 <option value="Tìm thấy giá rẻ hơn ở nơi khác">Tìm thấy giá rẻ hơn ở nơi khác</option>
+                <option value="Đặt nhầm sản phẩm / đơn hàng">Đặt nhầm sản phẩm / đơn hàng</option>
                 <option value="Lý do khác">Lý do khác</option>
               </select>
             </div>
@@ -632,6 +667,55 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
               </Btn>
               <Btn onClick={() => setShowCancelModal(false)} variant="ghost" size="md">
                 Không hủy
+              </Btn>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Modal Hướng dẫn Hủy đơn PROCESSING (Liên hệ Shop) */}
+      {showContactShopModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+          <Card className="max-w-md w-full p-6 animate-in zoom-in-95">
+            <div className="flex items-center gap-3 mb-3 text-blue-600">
+              <Info size={24} />
+              <h3 className="font-bold text-slate-800 text-base">
+                Yêu cầu hủy đơn #{formatOrderCode(order.id)}
+              </h3>
+            </div>
+            
+            <p className="text-xs text-slate-600 mb-3 leading-relaxed">
+              Đơn hàng này đã được người bán tiếp nhận và đang trong quá trình đóng gói. Theo quy định của hệ thống, đơn hàng đang xử lý không thể tự động hủy trực tiếp.
+            </p>
+
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 mb-4 space-y-1">
+              <p className="font-semibold text-slate-700">Hướng dẫn xử lý:</p>
+              <p>• Nhắn tin trực tiếp với Shop để người bán hỗ trợ giữ lại đơn trước khi bàn giao cho Shipper.</p>
+              <p>• Hoặc bạn có thể từ chối nhận hàng khi đơn vị vận chuyển liên hệ giao.</p>
+            </div>
+
+            <div className="flex gap-2">
+              {onOpenChat && (
+                <Btn
+                  onClick={() => {
+                    const shopId = order.shopId || order.items[0]?.book?.shopId;
+                    onOpenChat(shopId);
+                    setShowContactShopModal(false);
+                  }}
+                  color="#1d4ed8"
+                  size="md"
+                  className="flex-1"
+                >
+                  <MessageSquare size={16} /> Nhắn tin cho Shop ngay
+                </Btn>
+              )}
+              <Btn
+                onClick={() => setShowContactShopModal(false)}
+                variant="ghost"
+                size="md"
+                className={onOpenChat ? "" : "w-full"}
+              >
+                Đã hiểu
               </Btn>
             </div>
           </Card>
