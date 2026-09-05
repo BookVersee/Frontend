@@ -214,6 +214,20 @@ export const AdminDashboardPage: React.FC = () => {
   const [editingCatId, setEditingCatId] = useState<string | number | null>(null);
   const [editingCatName, setEditingCatName] = useState("");
 
+  // Create Admin Modal state
+  const [createAdminModalOpen, setCreateAdminModalOpen] = useState(false);
+  const [adminUsername, setAdminUsername] = useState("");
+  const [adminEmail, setAdminEmail] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [adminFullName, setAdminFullName] = useState("");
+  const [adminPhone, setAdminPhone] = useState("");
+  const [adminAddress, setAdminAddress] = useState("");
+  const [adminRole, setAdminRole] = useState<"ADMIN" | "SUPER_ADMIN">("ADMIN");
+  const [creatingAdmin, setCreatingAdmin] = useState(false);
+  const [createAdminError, setCreateAdminError] = useState("");
+  const [createAdminSuccess, setCreateAdminSuccess] = useState("");
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
+
   // Chat Drawer state
   const [chatOpen, setChatOpen] = useState(false);
   const [chatShopId, setChatShopId] = useState<string | number>(1);
@@ -431,6 +445,56 @@ export const AdminDashboardPage: React.FC = () => {
     setCategories((prev) => prev.filter((c) => c.id !== id));
   };
 
+  const handleCreateAdmin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreateAdminError("");
+    setCreateAdminSuccess("");
+
+    if (!adminUsername.trim()) {
+      setCreateAdminError("Vui lòng nhập Tên đăng nhập.");
+      return;
+    }
+    if (!adminEmail.trim()) {
+      setCreateAdminError("Vui lòng nhập Email.");
+      return;
+    }
+    if (!adminPassword || adminPassword.length < 6) {
+      setCreateAdminError("Mật khẩu khởi tạo phải có ít nhất 6 ký tự.");
+      return;
+    }
+
+    setCreatingAdmin(true);
+    try {
+      const newAdmin = await adminService.createAdmin({
+        username: adminUsername,
+        email: adminEmail,
+        password: adminPassword,
+        fullName: adminFullName,
+        phone: adminPhone,
+        address: adminAddress,
+        role: adminRole,
+      });
+
+      setUsers((prev) => [newAdmin, ...prev]);
+      setCreateAdminSuccess(`Đã tạo tài khoản Quản trị viên "${newAdmin.name}" (${adminRole}) thành công!`);
+      setAdminUsername("");
+      setAdminEmail("");
+      setAdminPassword("");
+      setAdminFullName("");
+      setAdminPhone("");
+      setAdminAddress("");
+      setAdminRole("ADMIN");
+      setTimeout(() => {
+        setCreateAdminSuccess("");
+        setCreateAdminModalOpen(false);
+      }, 2000);
+    } catch (err: any) {
+      setCreateAdminError(err?.message || "Không thể tạo tài khoản Quản trị viên. Vui lòng kiểm tra lại thông tin.");
+    } finally {
+      setCreatingAdmin(false);
+    }
+  };
+
   // --- Financial Chart Filtered Dataset ---
   const filteredFinancialData = useMemo(() => {
     if (finTimeRange === "Q1") return YEARLY_FINANCIAL_DATA.filter((d) => d.quarter === "Q1");
@@ -640,8 +704,8 @@ export const AdminDashboardPage: React.FC = () => {
                 <button
                   onClick={() => onPageChange(p)}
                   className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg font-bold transition-all text-xs cursor-pointer ${currentPage === p
-                      ? "bg-blue-600 text-white shadow-xs"
-                      : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                    ? "bg-blue-600 text-white shadow-xs"
+                    : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                     }`}
                 >
                   {p}
@@ -1069,8 +1133,8 @@ export const AdminDashboardPage: React.FC = () => {
                                 <button
                                   onClick={() => handleToggleBook(b.id, b.status)}
                                   className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${b.status === "ACTIVE"
-                                      ? "bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200"
-                                      : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200"
+                                    ? "bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200"
+                                    : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200"
                                     }`}
                                 >
                                   {b.status === "ACTIVE" ? "Ẩn sách" : "Bỏ ẩn"}
@@ -1105,8 +1169,8 @@ export const AdminDashboardPage: React.FC = () => {
                     <button
                       onClick={() => setDisputeSubTab("disputes")}
                       className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${disputeSubTab === "disputes"
-                          ? "bg-white text-blue-600 shadow-xs"
-                          : "text-slate-600 hover:text-slate-900"
+                        ? "bg-white text-blue-600 shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
                         }`}
                     >
                       Khiếu nại Hoàn tiền ({returnOrders.length})
@@ -1114,8 +1178,8 @@ export const AdminDashboardPage: React.FC = () => {
                     <button
                       onClick={() => setDisputeSubTab("reports")}
                       className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${disputeSubTab === "reports"
-                          ? "bg-white text-rose-600 shadow-xs"
-                          : "text-slate-600 hover:text-slate-900"
+                        ? "bg-white text-rose-600 shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
                         }`}
                     >
                       Báo cáo Vi phạm ({reports.filter((r) => r.status === "PENDING").length})
@@ -1375,8 +1439,8 @@ export const AdminDashboardPage: React.FC = () => {
                     <button
                       onClick={() => setShopSubTab("pending")}
                       className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${shopSubTab === "pending"
-                          ? "bg-white text-amber-700 shadow-xs"
-                          : "text-slate-600 hover:text-slate-900"
+                        ? "bg-white text-amber-700 shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
                         }`}
                     >
                       Shop chờ duyệt ({pendingShops.length})
@@ -1384,8 +1448,8 @@ export const AdminDashboardPage: React.FC = () => {
                     <button
                       onClick={() => setShopSubTab("all")}
                       className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${shopSubTab === "all"
-                          ? "bg-white text-blue-600 shadow-xs"
-                          : "text-slate-600 hover:text-slate-900"
+                        ? "bg-white text-blue-600 shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
                         }`}
                     >
                       Tất cả gian hàng ({allShops.length})
@@ -1596,8 +1660,8 @@ export const AdminDashboardPage: React.FC = () => {
                           key={tf.key}
                           onClick={() => setFinTimeRange(tf.key)}
                           className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer whitespace-nowrap ${finTimeRange === tf.key
-                              ? "bg-white text-blue-600 shadow-xs"
-                              : "text-slate-600 hover:text-slate-900"
+                            ? "bg-white text-blue-600 shadow-xs"
+                            : "text-slate-600 hover:text-slate-900"
                             }`}
                         >
                           {tf.label}
@@ -1623,8 +1687,8 @@ export const AdminDashboardPage: React.FC = () => {
                         key={m.key}
                         onClick={() => setFinMetric(m.key)}
                         className={`px-3 py-1.5 rounded-xl font-bold transition-all border cursor-pointer ${finMetric === m.key
-                            ? "bg-slate-900 text-white border-slate-900 shadow-xs"
-                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                          ? "bg-slate-900 text-white border-slate-900 shadow-xs"
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
                           }`}
                       >
                         {m.label}
@@ -1730,25 +1794,25 @@ export const AdminDashboardPage: React.FC = () => {
                               ) : (
                                 <div
                                   className={`w-full max-w-[36px] rounded-t-lg transition-all duration-300 ${finMetric === "gross"
-                                      ? "bg-blue-600 hover:bg-blue-700"
-                                      : finMetric === "shop"
-                                        ? "bg-emerald-600 hover:bg-emerald-700"
-                                        : finMetric === "refund"
-                                          ? "bg-rose-600 hover:bg-rose-700"
-                                          : finMetric === "delivery"
-                                            ? "bg-amber-600 hover:bg-amber-700"
-                                            : "bg-purple-600 hover:bg-purple-700"
+                                    ? "bg-blue-600 hover:bg-blue-700"
+                                    : finMetric === "shop"
+                                      ? "bg-emerald-600 hover:bg-emerald-700"
+                                      : finMetric === "refund"
+                                        ? "bg-rose-600 hover:bg-rose-700"
+                                        : finMetric === "delivery"
+                                          ? "bg-amber-600 hover:bg-amber-700"
+                                          : "bg-purple-600 hover:bg-purple-700"
                                     }`}
                                   style={{
                                     height: `${finMetric === "gross"
-                                        ? grossHeight
-                                        : finMetric === "shop"
-                                          ? shopHeight
-                                          : finMetric === "refund"
-                                            ? Math.max(refundHeight, 6)
-                                            : finMetric === "delivery"
-                                              ? deliveryHeight
-                                              : profitHeight
+                                      ? grossHeight
+                                      : finMetric === "shop"
+                                        ? shopHeight
+                                        : finMetric === "refund"
+                                          ? Math.max(refundHeight, 6)
+                                          : finMetric === "delivery"
+                                            ? deliveryHeight
+                                            : profitHeight
                                       }%`,
                                   }}
                                 />
@@ -1940,9 +2004,23 @@ export const AdminDashboardPage: React.FC = () => {
                       Theo dõi số lượng khách hàng, gian hàng và shipper mới đăng ký theo mốc thời gian
                     </p>
                   </div>
-                  <span className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-100">
-                    {filteredUsers.length} / {users.length} tài khoản
-                  </span>
+                  <div className="flex items-center gap-2.5">
+                    <Btn
+                      onClick={() => {
+                        setCreateAdminError("");
+                        setCreateAdminSuccess("");
+                        setCreateAdminModalOpen(true);
+                      }}
+                      color="#4f46e5"
+                      size="sm"
+                      className="shadow-xs font-bold"
+                    >
+                      <UserPlus size={15} /> Thêm Quản trị viên (Admin)
+                    </Btn>
+                    <span className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-100">
+                      {filteredUsers.length} / {users.length} tài khoản
+                    </span>
+                  </div>
                 </div>
 
                 {/* --- INTERACTIVE USER GROWTH CHART SECTION --- */}
@@ -1975,8 +2053,8 @@ export const AdminDashboardPage: React.FC = () => {
                           key={tf.key}
                           onClick={() => setUserTimeRange(tf.key)}
                           className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${userTimeRange === tf.key
-                              ? "bg-white text-indigo-600 shadow-xs"
-                              : "text-slate-600 hover:text-slate-900"
+                            ? "bg-white text-indigo-600 shadow-xs"
+                            : "text-slate-600 hover:text-slate-900"
                             }`}
                         >
                           {tf.label}
@@ -2000,8 +2078,8 @@ export const AdminDashboardPage: React.FC = () => {
                         key={m.key}
                         onClick={() => setUserRoleMetric(m.key)}
                         className={`px-3 py-1.5 rounded-xl font-bold transition-all border cursor-pointer ${userRoleMetric === m.key
-                            ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
-                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                          ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
                           }`}
                       >
                         {m.label}
@@ -2084,17 +2162,17 @@ export const AdminDashboardPage: React.FC = () => {
                               ) : (
                                 <div
                                   className={`w-full max-w-[32px] rounded-t-lg transition-all duration-300 ${userRoleMetric === "customers"
-                                      ? "bg-blue-600"
-                                      : userRoleMetric === "shops"
-                                        ? "bg-amber-500"
-                                        : "bg-emerald-500"
+                                    ? "bg-blue-600"
+                                    : userRoleMetric === "shops"
+                                      ? "bg-amber-500"
+                                      : "bg-emerald-500"
                                     }`}
                                   style={{
                                     height: `${userRoleMetric === "customers"
-                                        ? custHeight
-                                        : userRoleMetric === "shops"
-                                          ? Math.max(shopHeight * 3, 8)
-                                          : Math.max(shipHeight * 4, 6)
+                                      ? custHeight
+                                      : userRoleMetric === "shops"
+                                        ? Math.max(shopHeight * 3, 8)
+                                        : Math.max(shipHeight * 4, 6)
                                       }%`,
                                   }}
                                 />
@@ -2607,7 +2685,202 @@ export const AdminDashboardPage: React.FC = () => {
         </Modal>
       )}
 
-      {/* 6. Live Chat Drawer with Shop */}
+      {/* 6. Modal Create New Admin */}
+      {createAdminModalOpen && (
+        <Modal
+          isOpen={true}
+          title="Tạo tài khoản Quản trị viên mới (Admin / Super Admin)"
+          onClose={() => setCreateAdminModalOpen(false)}
+        >
+          <form onSubmit={handleCreateAdmin} className="space-y-4 text-xs sm:text-sm">
+            {createAdminSuccess && (
+              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-700 font-semibold flex items-center gap-2">
+                <Check size={16} /> {createAdminSuccess}
+              </div>
+            )}
+
+            {createAdminError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-semibold flex items-center gap-2">
+                <AlertTriangle size={16} /> {createAdminError}
+              </div>
+            )}
+
+            {/* Role Selection */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Cấp độ phân quyền *
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label
+                  className={`p-3 rounded-xl border flex flex-col gap-1 cursor-pointer transition-all ${adminRole === "ADMIN"
+                      ? "border-indigo-600 bg-indigo-50/50 shadow-xs"
+                      : "border-slate-200 bg-white hover:bg-slate-50"
+                    }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-black text-indigo-900 text-xs flex items-center gap-1.5">
+                      <ShieldCheck size={15} className="text-indigo-600" /> ADMIN
+                    </span>
+                    <input
+                      type="radio"
+                      name="adminRole"
+                      value="ADMIN"
+                      checked={adminRole === "ADMIN"}
+                      onChange={() => setAdminRole("ADMIN")}
+                      className="text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                  </div>
+                  <span className="text-[11px] text-slate-500">
+                    Quản trị viên tiêu chuẩn (Duyệt shop, đơn hàng, sách, khiếu nại)
+                  </span>
+                </label>
+
+                <label
+                  className={`p-3 rounded-xl border flex flex-col gap-1 cursor-pointer transition-all ${adminRole === "SUPER_ADMIN"
+                      ? "border-purple-600 bg-purple-50/50 shadow-xs"
+                      : "border-slate-200 bg-white hover:bg-slate-50"
+                    }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-black text-purple-900 text-xs flex items-center gap-1.5">
+                      <Sparkles size={15} className="text-purple-600" /> SUPER ADMIN
+                    </span>
+                    <input
+                      type="radio"
+                      name="adminRole"
+                      value="SUPER_ADMIN"
+                      checked={adminRole === "SUPER_ADMIN"}
+                      onChange={() => setAdminRole("SUPER_ADMIN")}
+                      className="text-purple-600 focus:ring-purple-500 cursor-pointer"
+                    />
+                  </div>
+                  <span className="text-[11px] text-slate-500">
+                    Toàn quyền hệ thống + Quản lý & Cấp quyền tài khoản Admin
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Họ và tên
+                </label>
+                <input
+                  type="text"
+                  value={adminFullName}
+                  onChange={(e) => setAdminFullName(e.target.value)}
+                  placeholder="Ví dụ: Nguyễn Văn Quản Trị"
+                  className="w-full text-xs px-3 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Tên đăng nhập (Username) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={adminUsername}
+                  onChange={(e) => setAdminUsername(e.target.value)}
+                  placeholder="admin_staff01"
+                  className="w-full text-xs px-3 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Email làm việc *
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={adminEmail}
+                  onChange={(e) => setAdminEmail(e.target.value)}
+                  placeholder="admin@bookverse.com"
+                  className="w-full text-xs px-3 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Mật khẩu khởi tạo *
+                </label>
+                <div className="relative">
+                  <input
+                    type={showAdminPassword ? "text" : "password"}
+                    required
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    placeholder="Tối thiểu 6 ký tự"
+                    className="w-full text-xs px-3 pr-9 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500 font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminPassword(!showAdminPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    {showAdminPassword ? <Eye size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Số điện thoại liên hệ
+                </label>
+                <input
+                  type="text"
+                  value={adminPhone}
+                  onChange={(e) => setAdminPhone(e.target.value)}
+                  placeholder="0988123456"
+                  className="w-full text-xs px-3 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Địa chỉ / Phòng ban phụ trách
+                </label>
+                <input
+                  type="text"
+                  value={adminAddress}
+                  onChange={(e) => setAdminAddress(e.target.value)}
+                  placeholder="Văn phòng BookVerse TP.HCM"
+                  className="w-full text-xs px-3 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2.5">
+              <Btn
+                type="button"
+                onClick={() => setCreateAdminModalOpen(false)}
+                variant="ghost"
+                size="sm"
+              >
+                Hủy
+              </Btn>
+              <Btn
+                type="submit"
+                disabled={creatingAdmin}
+                color="#4f46e5"
+                size="sm"
+                className="font-bold"
+              >
+                <UserPlus size={15} /> {creatingAdmin ? "Đang tạo tài khoản..." : "Xác nhận tạo Admin"}
+              </Btn>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* 7. Live Chat Drawer with Shop */}
       {chatOpen && (
         <ChatDrawer
           isOpen={chatOpen}

@@ -528,7 +528,7 @@ export const authService = {
 
   async changePassword(oldPassword: string, newPassword: string): Promise<string> {
     try {
-      const response = await apiClient.put<ApiResponse<string>>("/user/ChangePassword", {
+      const response = await apiClient.post<ApiResponse<string>>("/user/ChangePassword", {
         oldPassword,
         newPassword,
       });
@@ -546,6 +546,58 @@ export const authService = {
       throw new Error("Không thể kết nối đến máy chủ Backend để đổi mật khẩu.");
     }
   },
+
+  async sendPasswordOtp(email: string): Promise<string> {
+    const trimmedEmail = email.trim().toLowerCase();
+    try {
+      const res = await apiClient.post<ApiResponse<string>>("/user/SendPasswordOtp", {
+        email: trimmedEmail,
+      });
+      return res.data?.message || res.data?.data || "Mã OTP đã được gửi về Gmail của bạn.";
+    } catch (error: any) {
+      console.warn("SendPasswordOtp API error:", error);
+      if (error.response?.status === 404) {
+        return this.forgotPassword(trimmedEmail);
+      }
+      const msg = error.response?.data?.message || "Không thể gửi mã OTP. Vui lòng kiểm tra lại email.";
+      throw new Error(msg);
+    }
+  },
+
+  async verifyPasswordOtp(email: string, otp: string): Promise<string> {
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedOtp = otp.trim();
+    try {
+      const res = await apiClient.post<ApiResponse<string>>("/user/VerifyPasswordOtp", {
+        email: trimmedEmail,
+        otp: trimmedOtp,
+      });
+      return res.data?.message || res.data?.data || "Xác thực OTP thành công!";
+    } catch (error: any) {
+      console.warn("VerifyPasswordOtp API error:", error);
+      if (error.response?.status === 404) {
+        return this.verifyResetOtp(trimmedEmail, trimmedOtp);
+      }
+      const msg = error.response?.data?.message || "Mã OTP không chính xác hoặc đã hết hạn.";
+      throw new Error(msg);
+    }
+  },
+
+  async resetNewPassword(email: string, newPassword: string): Promise<string> {
+    const trimmedEmail = email.trim().toLowerCase();
+    try {
+      const res = await apiClient.post<ApiResponse<string>>("/user/ResetNewPassword", {
+        email: trimmedEmail,
+        newPassword,
+      });
+      return res.data?.message || res.data?.data || "Thiết lập mật khẩu mới thành công!";
+    } catch (error: any) {
+      console.warn("ResetNewPassword API error:", error);
+      const msg = error.response?.data?.message || "Không thể thiết lập mật khẩu mới.";
+      throw new Error(msg);
+    }
+  },
+
 
   async getUserTransactions(): Promise<any[]> {
     try {

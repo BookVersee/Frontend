@@ -18,6 +18,8 @@ import {
   RefreshCw,
   Clock,
   LogOut,
+  Send,
+  Sparkles,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { authService } from "../../services/authService";
@@ -54,6 +56,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
   const [changingPass, setChangingPass] = useState(false);
   const [passSuccess, setPassSuccess] = useState("");
   const [passError, setPassError] = useState("");
+
+  // Google Account Set Password via OTP state
+  const isGoogleUser = user?.authProvider === "google";
+  const [googleOtpSent, setGoogleOtpSent] = useState(false);
+  const [googleOtp, setGoogleOtp] = useState("");
+  const [googleOtpSending, setGoogleOtpSending] = useState(false);
+  const [googleOtpVerifying, setGoogleOtpVerifying] = useState(false);
+
 
   // Shop Onboarding form state
   const [showShopRegister, setShowShopRegister] = useState(false);
@@ -155,6 +165,59 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
       setChangingPass(false);
     }
   };
+
+  const handleSendGoogleOtp = async () => {
+    if (!user?.email) return;
+    setGoogleOtpSending(true);
+    setPassError("");
+    setPassSuccess("");
+    try {
+      const msg = await authService.sendPasswordOtp(user.email);
+      setGoogleOtpSent(true);
+      setPassSuccess(msg || "Mã xác thực OTP đã được gửi đến email của bạn.");
+    } catch (err: any) {
+      setPassError(err?.message || "Không thể gửi mã OTP. Vui lòng thử lại.");
+    } finally {
+      setGoogleOtpSending(false);
+    }
+  };
+
+  const handleSetGooglePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user?.email) return;
+    setPassError("");
+    setPassSuccess("");
+
+    if (!googleOtp.trim()) {
+      setPassError("Vui lòng nhập mã OTP 6 số đã được gửi về email.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPassError("Mật khẩu mới phải có tối thiểu 6 ký tự.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPassError("Xác nhận mật khẩu mới không trùng khớp.");
+      return;
+    }
+
+    setGoogleOtpVerifying(true);
+    try {
+      await authService.verifyPasswordOtp(user.email, googleOtp);
+      const msg = await authService.resetNewPassword(user.email, newPassword);
+      setPassSuccess(msg || "Thiết lập mật khẩu thành công! Giờ đây bạn có thể sử dụng mật khẩu này để đăng nhập.");
+      setGoogleOtp("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setGoogleOtpSent(false);
+      setTimeout(() => setPassSuccess(""), 6000);
+    } catch (err: any) {
+      setPassError(err?.message || "Xác thực OTP hoặc thiết lập mật khẩu thất bại.");
+    } finally {
+      setGoogleOtpVerifying(false);
+    }
+  };
+
 
   const handleRegisterShop = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -528,10 +591,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
           <Card className="p-6 shadow-sm">
             <h3 className="font-bold text-slate-800 text-base mb-1 flex items-center gap-2">
               <KeyRound size={18} className="text-indigo-600" />
-              Đổi mật khẩu tài khoản
+              {isGoogleUser ? "Mật khẩu & Bảo mật tài khoản" : "Đổi mật khẩu tài khoản"}
             </h3>
             <p className="text-xs text-slate-400 mb-4">
-              Khuyên bạn nên sử dụng mật khẩu mạnh có ít nhất 6 ký tự gồm chữ cái, số và ký tự đặc biệt.
+              {isGoogleUser
+                ? "Tài khoản liên kết Google có thể thiết lập thêm mật khẩu bảo mật riêng để đăng nhập bằng nhiều phương thức."
+                : "Khuyên bạn nên sử dụng mật khẩu mạnh có ít nhất 6 ký tự gồm chữ cái, số và ký tự đặc biệt."}
             </p>
 
             {passSuccess && (
@@ -546,87 +611,219 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
               </div>
             )}
 
-            <form onSubmit={handleChangePassword} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">
-                  Mật khẩu hiện tại *
-                </label>
-                <div className="relative">
-                  <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type={showOldPass ? "text" : "password"}
-                    required
-                    value={oldPassword}
-                    onChange={(e) => setOldPassword(e.target.value)}
-                    placeholder="Nhập mật khẩu đang sử dụng"
-                    className="w-full text-xs sm:text-sm pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowOldPass(!showOldPass)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  >
-                    {showOldPass ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
+            {isGoogleUser ? (
+              <div className="space-y-4">
+                {/* Google Notice Banner */}
+                <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50/60 border border-amber-200 text-amber-950 flex items-start gap-3.5">
+                  <div className="w-10 h-10 rounded-xl bg-white shadow-xs border border-amber-200 flex items-center justify-center shrink-0 mt-0.5">
+                    <svg className="w-5 h-5" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                    </svg>
+                  </div>
+                  <div className="text-xs sm:text-sm">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-slate-800">Tài khoản đăng nhập bằng Google</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-200/90 text-amber-900 border border-amber-300">
+                        Chưa thiết lập mật khẩu cũ
+                      </span>
+                    </div>
+                    <p className="mt-1 text-slate-600 leading-relaxed">
+                      Tài khoản <strong>{user?.email}</strong> của bạn được tạo và đăng nhập nhanh thông qua Google OAuth nên hiện tại <strong>chưa có mật khẩu truyền thống</strong>.
+                    </p>
+                    <p className="mt-1 text-slate-500 text-[11px]">
+                      Bạn vẫn có thể tiếp tục đăng nhập bình thường bằng Google. Nếu muốn tạo thêm mật khẩu riêng để đăng nhập bằng cả Email & Mật khẩu, bạn có thể thực hiện xác thực OTP bên dưới:
+                    </p>
+                  </div>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Form Thiết lập Mật Khẩu qua OTP */}
+                {!googleOtpSent ? (
+                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold text-slate-700">Thiết lập mật khẩu mới cho tài khoản</p>
+                      <p className="text-[11px] text-slate-400">Hệ thống sẽ gửi mã OTP xác nhận về hộp thư {user?.email}</p>
+                    </div>
+                    <Btn onClick={handleSendGoogleOtp} disabled={googleOtpSending} color="#4f46e5" size="sm">
+                      <Send size={14} /> {googleOtpSending ? "Đang gửi OTP..." : "Gửi mã OTP qua Email"}
+                    </Btn>
+                  </div>
+                ) : (
+                  <form onSubmit={handleSetGooglePassword} className="space-y-4 pt-1">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-slate-600">
+                          Mã xác thực OTP (6 số) *
+                        </label>
+                        <button
+                          type="button"
+                          onClick={handleSendGoogleOtp}
+                          disabled={googleOtpSending}
+                          className="text-[11px] text-indigo-600 hover:underline font-semibold cursor-pointer"
+                        >
+                          {googleOtpSending ? "Đang gửi lại..." : "Gửi lại mã OTP"}
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <ShieldCheck size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          required
+                          maxLength={6}
+                          value={googleOtp}
+                          onChange={(e) => setGoogleOtp(e.target.value)}
+                          placeholder="Nhập mã 6 số gửi về email"
+                          className="w-full text-xs sm:text-sm pl-10 pr-4 py-2.5 border border-indigo-200 rounded-xl bg-indigo-50/40 focus:outline-none focus:border-indigo-500 font-mono font-bold tracking-widest text-indigo-900"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">
+                          Mật khẩu mới *
+                        </label>
+                        <div className="relative">
+                          <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type={showNewPass ? "text" : "password"}
+                            required
+                            value={newPassword}
+                            onChange={(e) => setNewPassword(e.target.value)}
+                            placeholder="Tối thiểu 6 ký tự"
+                            className="w-full text-xs sm:text-sm pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowNewPass(!showNewPass)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                          >
+                            {showNewPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">
+                          Xác nhận mật khẩu mới *
+                        </label>
+                        <div className="relative">
+                          <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type={showConfirmPass ? "text" : "password"}
+                            required
+                            value={confirmPassword}
+                            onChange={(e) => setConfirmPassword(e.target.value)}
+                            placeholder="Nhập lại mật khẩu mới"
+                            className="w-full text-xs sm:text-sm pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowConfirmPass(!showConfirmPass)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                          >
+                            {showConfirmPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 flex items-center gap-3">
+                      <Btn type="submit" disabled={googleOtpVerifying} size="md" color="#4f46e5">
+                        <KeyRound size={16} /> {googleOtpVerifying ? "Đang xác thực & lưu..." : "Xác nhận & Thiết lập mật khẩu"}
+                      </Btn>
+                      <Btn type="button" onClick={() => setGoogleOtpSent(false)} variant="ghost" size="md">
+                        Hủy
+                      </Btn>
+                    </div>
+                  </form>
+                )}
+              </div>
+            ) : (
+              <form onSubmit={handleChangePassword} className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">
-                    Mật khẩu mới *
+                    Mật khẩu hiện tại *
                   </label>
                   <div className="relative">
                     <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
-                      type={showNewPass ? "text" : "password"}
+                      type={showOldPass ? "text" : "password"}
                       required
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Tối thiểu 6 ký tự"
+                      value={oldPassword}
+                      onChange={(e) => setOldPassword(e.target.value)}
+                      placeholder="Nhập mật khẩu đang sử dụng"
                       className="w-full text-xs sm:text-sm pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500"
                     />
                     <button
                       type="button"
-                      onClick={() => setShowNewPass(!showNewPass)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      onClick={() => setShowOldPass(!showOldPass)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
                     >
-                      {showNewPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                      {showOldPass ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">
-                    Xác nhận mật khẩu mới *
-                  </label>
-                  <div className="relative">
-                    <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type={showConfirmPass ? "text" : "password"}
-                      required
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="Nhập lại mật khẩu mới"
-                      className="w-full text-xs sm:text-sm pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirmPass(!showConfirmPass)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                    >
-                      {showConfirmPass ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      Mật khẩu mới *
+                    </label>
+                    <div className="relative">
+                      <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type={showNewPass ? "text" : "password"}
+                        required
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="Tối thiểu 6 ký tự"
+                        className="w-full text-xs sm:text-sm pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPass(!showNewPass)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        {showNewPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      Xác nhận mật khẩu mới *
+                    </label>
+                    <div className="relative">
+                      <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type={showConfirmPass ? "text" : "password"}
+                        required
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="Nhập lại mật khẩu mới"
+                        className="w-full text-xs sm:text-sm pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPass(!showConfirmPass)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        {showConfirmPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="pt-2">
-                <Btn type="submit" disabled={changingPass} size="md" color="#4f46e5">
-                  <KeyRound size={16} /> {changingPass ? "Đang xử lý..." : "Cập nhật mật khẩu mới"}
-                </Btn>
-              </div>
-            </form>
+                <div className="pt-2">
+                  <Btn type="submit" disabled={changingPass} size="md" color="#4f46e5">
+                    <KeyRound size={16} /> {changingPass ? "Đang xử lý..." : "Cập nhật mật khẩu mới"}
+                  </Btn>
+                </div>
+              </form>
+            )}
           </Card>
 
           {/* 3. Transactions History */}

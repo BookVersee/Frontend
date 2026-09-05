@@ -627,7 +627,54 @@ export const adminService = {
     }
   },
 
+  // 16. Super Admin tạo tài khoản Quản trị viên mới
+  async createAdmin(data: {
+    username: string;
+    email: string;
+    password: string;
+    fullName?: string;
+    phone?: string;
+    address?: string;
+    role?: "ADMIN" | "SUPER_ADMIN";
+  }): Promise<User> {
+    try {
+      const res = await apiClient.post<ApiResponse<any>>("/admin/CreateAdmin", {
+        username: data.username.trim(),
+        email: data.email.trim().toLowerCase(),
+        password: data.password,
+        fullName: data.fullName?.trim() || undefined,
+        phone: data.phone?.trim() || undefined,
+        address: data.address?.trim() || undefined,
+        role: data.role || "ADMIN",
+      });
+      const u = res.data.data;
+      return {
+        id: u.id,
+        name: u.fullName || u.username,
+        email: u.email,
+        role: (u.role?.toLowerCase() as any) || "admin",
+        phone: u.phone,
+        address: u.address,
+        status: u.status || "ACTIVE",
+        createdAt: u.createdAt || new Date().toLocaleDateString("vi-VN"),
+        balance: 0,
+      };
+    } catch (error: any) {
+      console.warn("createAdmin API error:", error);
+      if (error.response?.status === 403) {
+        throw new Error("Bạn cần quyền SUPER_ADMIN để tạo tài khoản Quản trị viên mới. Vui lòng cập nhật quyền tài khoản đang đăng nhập thành SUPER_ADMIN trong CSDL.");
+      }
+      const msg =
+        error.response?.data?.message ||
+        error.response?.data?.errors?.detail ||
+        (typeof error.response?.data?.errors === "string" ? error.response.data.errors : null) ||
+        "Không thể tạo tài khoản Quản trị viên. Vui lòng kiểm tra lại thông tin.";
+      throw new Error(msg);
+    }
+  },
+
   async getTransactions(): Promise<Transaction[]> {
     return INITIAL_TRANSACTIONS;
   },
 };
+
