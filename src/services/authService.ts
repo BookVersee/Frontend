@@ -1,7 +1,7 @@
 import { apiClient } from "./api";
-import { User, AuthResponse, Role, Shop, ApiResponse } from "../types";
+import { User, AuthResponse, Role, Shop, ApiResponse, Transaction, BackendTransactionResponse } from "../types";
 import { setStoredToken, setStoredUser, removeStoredToken, getStoredUser } from "../utils/storage";
-import { DEMO_USERS, INITIAL_SHOPS } from "./mockData";
+import { DEMO_USERS, INITIAL_SHOPS, INITIAL_TRANSACTIONS } from "./mockData";
 
 export interface RegisterData {
   username?: string;
@@ -599,20 +599,29 @@ export const authService = {
   },
 
 
-  async getUserTransactions(): Promise<any[]> {
+  async getUserTransactions(): Promise<Transaction[]> {
     try {
-      const response = await apiClient.get<ApiResponse<any[]>>("/user/GetTransactions");
+      const response = await apiClient.get<ApiResponse<BackendTransactionResponse[]>>("/user/GetMyTransactions");
       const list = response.data?.data || [];
-      return list.map((tx: any) => ({
-        id: tx.id,
-        userId: tx.userId,
-        orderId: tx.orderId || (tx.id ? String(tx.id).slice(0, 8) : 1001),
-        type: tx.type || (tx.amount >= 0 ? "REFUND" : "PAYMENT"),
-        amount: Math.abs(tx.amount || 0),
-        status: tx.status || "SUCCESS",
-        description: tx.description || (tx.type === "REFUND" ? "Hoàn tiền đơn hàng" : "Thanh toán đơn hàng"),
-        createdAt: tx.createdAt ? new Date(tx.createdAt).toLocaleString("vi-VN") : new Date().toLocaleString("vi-VN"),
-      }));
+      return list.map((tx: BackendTransactionResponse) => {
+        const isRefund = tx.referenceType === "REFUND" || tx.transactionType === "IN";
+        return {
+          id: tx.id,
+          userId: tx.userId,
+          orderId: tx.referenceId || undefined,
+          referenceId: tx.referenceId || undefined,
+          referenceType: tx.referenceType,
+          transactionType: (tx.transactionType === "IN" ? "IN" : "OUT") as "IN" | "OUT",
+          amount: Math.abs(Number(tx.amount) || 0),
+          type: isRefund ? "REFUND" : "ONLINE",
+          paidBy: tx.transactionCode || "Hệ thống BookVerse",
+          code: tx.transactionCode || undefined,
+          transactionCode: tx.transactionCode || undefined,
+          status: "SUCCESS",
+          description: tx.description || (isRefund ? "Hoàn tiền giao dịch" : "Thanh toán giao dịch"),
+          createdAt: tx.createdAt,
+        };
+      });
     } catch (error) {
       console.warn("getUserTransactions API error, falling back to mock:", error);
       const current = getStoredUser<User>();

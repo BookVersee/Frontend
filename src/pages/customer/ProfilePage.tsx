@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   User,
   Mail,
@@ -20,6 +20,14 @@ import {
   LogOut,
   Send,
   Sparkles,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Copy,
+  Check,
+  Search,
+  Receipt,
+  Filter,
+  X,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { authService } from "../../services/authService";
@@ -27,7 +35,8 @@ import { Card } from "../../components/common/Card";
 import { Btn } from "../../components/common/Btn";
 import { Badge } from "../../components/common/Badge";
 import { Modal } from "../../components/common/Modal";
-import { fmt } from "../../utils/format";
+import { fmt, formatOrderDate, formatOrderCode } from "../../utils/format";
+import { Transaction } from "../../types";
 
 interface ProfilePageProps {
   onOpenAuth?: () => void;
@@ -74,8 +83,47 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
   const [shopRegistered, setShopRegistered] = useState(user?.shopStatus === "PENDING");
 
   // Transactions state
-  const [transactions, setTransactions] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loadingTx, setLoadingTx] = useState(false);
+  const [txFilter, setTxFilter] = useState<"ALL" | "PAYMENT" | "REFUND">("ALL");
+  const [txSearch, setTxSearch] = useState("");
+  const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+  const [copiedTxCode, setCopiedTxCode] = useState<string | null>(null);
+
+  const handleCopyCode = (code: string) => {
+    navigator.clipboard.writeText(code);
+    setCopiedTxCode(code);
+    setTimeout(() => setCopiedTxCode(null), 2000);
+  };
+
+  const totalSpent = useMemo(() => {
+    return transactions
+      .filter((t) => t.transactionType === "OUT" || t.type !== "REFUND")
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
+  }, [transactions]);
+
+  const totalRefunded = useMemo(() => {
+    return transactions
+      .filter((t) => t.transactionType === "IN" || t.type === "REFUND")
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
+  }, [transactions]);
+
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter((tx) => {
+      const isRefund = tx.referenceType === "REFUND" || tx.transactionType === "IN" || tx.type === "REFUND";
+      if (txFilter === "PAYMENT" && isRefund) return false;
+      if (txFilter === "REFUND" && !isRefund) return false;
+
+      if (txSearch.trim()) {
+        const q = txSearch.toLowerCase().trim();
+        const matchCode = tx.transactionCode?.toLowerCase().includes(q) || tx.code?.toLowerCase().includes(q);
+        const matchRef = tx.referenceId?.toLowerCase().includes(q) || String(tx.orderId || "").toLowerCase().includes(q);
+        const matchDesc = tx.description?.toLowerCase().includes(q);
+        if (!matchCode && !matchRef && !matchDesc) return false;
+      }
+      return true;
+    });
+  }, [transactions, txFilter, txSearch]);
 
   // Delete Account Modal state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -828,7 +876,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
 
           {/* 3. Transactions History */}
           <Card className="p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
               <div>
                 <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
                   <CreditCard size={18} className="text-emerald-600" />
@@ -838,58 +886,223 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
                   Theo dõi chi tiết các khoản thanh toán, hoàn tiền khiếu nại và giao dịch ví
                 </p>
               </div>
-              <Btn onClick={loadTransactions} variant="ghost" size="sm" className="text-xs">
+              <Btn onClick={loadTransactions} variant="ghost" size="sm" className="text-xs self-start sm:self-auto">
                 <RefreshCw size={13} className={loadingTx ? "animate-spin" : ""} /> Làm mới
               </Btn>
             </div>
 
-            {loadingTx ? (
-              <div className="py-8 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
-                <RefreshCw size={16} className="animate-spin text-blue-600" /> Đang tải lịch sử giao dịch...
+            {/* Stat Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+              <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                  <ArrowUpRight size={20} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-medium text-slate-500 truncate">Tổng thanh toán</p>
+                  <p className="text-sm sm:text-base font-bold text-slate-800 truncate">{fmt(totalSpent)}</p>
+                </div>
               </div>
-            ) : transactions.length === 0 ? (
-              <div className="py-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                <Clock size={28} className="mx-auto text-slate-300 mb-2" />
-                <p className="text-xs font-semibold text-slate-600">Chưa có giao dịch nào phát sinh</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  Khi bạn thanh toán hoặc nhận tiền hoàn, các giao dịch sẽ hiển thị tại đây.
+
+              <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                  <ArrowDownLeft size={20} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-medium text-slate-500 truncate">Tổng tiền hoàn trả</p>
+                  <p className="text-sm sm:text-base font-bold text-emerald-600 truncate">{fmt(totalRefunded)}</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                  <Receipt size={20} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-medium text-slate-500 truncate">Lượt biến động</p>
+                  <p className="text-sm sm:text-base font-bold text-slate-800 truncate">{transactions.length} giao dịch</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Filter & Search Bar */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4">
+              {/* Tabs */}
+              <div className="flex items-center gap-1 bg-slate-100/90 p-1 rounded-xl shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setTxFilter("ALL")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    txFilter === "ALL"
+                      ? "bg-white text-slate-800 shadow-sm"
+                      : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  Tất cả ({transactions.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTxFilter("PAYMENT")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    txFilter === "PAYMENT"
+                      ? "bg-white text-blue-700 shadow-sm"
+                      : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  Thanh toán
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTxFilter("REFUND")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    txFilter === "REFUND"
+                      ? "bg-white text-emerald-700 shadow-sm"
+                      : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  Hoàn tiền
+                </button>
+              </div>
+
+              {/* Search input */}
+              <div className="relative flex-1 max-w-sm">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={txSearch}
+                  onChange={(e) => setTxSearch(e.target.value)}
+                  placeholder="Tìm theo mã GD, mã đơn..."
+                  className="w-full text-xs pl-8 pr-7 py-2 rounded-xl bg-slate-50 border border-slate-200 focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+                />
+                {txSearch && (
+                  <button
+                    onClick={() => setTxSearch("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* List */}
+            {loadingTx ? (
+              <div className="py-12 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-2">
+                <RefreshCw size={20} className="animate-spin text-blue-600" />
+                <span>Đang đồng bộ lịch sử giao dịch từ máy chủ...</span>
+              </div>
+            ) : filteredTransactions.length === 0 ? (
+              <div className="py-10 text-center bg-slate-50/70 rounded-2xl border border-dashed border-slate-200">
+                <Clock size={32} className="mx-auto text-slate-300 mb-2" />
+                <p className="text-xs font-semibold text-slate-600">
+                  {txSearch || txFilter !== "ALL"
+                    ? "Không tìm thấy giao dịch nào phù hợp bộ lọc"
+                    : "Chưa có giao dịch nào phát sinh"}
+                </p>
+                <p className="text-[11px] text-slate-400 mt-1 max-w-sm mx-auto">
+                  {txSearch || txFilter !== "ALL"
+                    ? "Vui lòng thử tìm kiếm với từ khóa khác hoặc chuyển sang tab Tất cả."
+                    : "Khi bạn thanh toán hoặc nhận tiền hoàn, các giao dịch sẽ hiển thị tại đây."}
                 </p>
               </div>
             ) : (
-              <div className="divide-y divide-slate-100 max-h-72 overflow-y-auto pr-1">
-                {transactions.map((tx) => (
-                  <div key={tx.id} className="py-3 flex items-center justify-between text-xs hover:bg-slate-50/60 px-2 rounded-lg transition-colors">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${tx.type === "REFUND"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-blue-100 text-blue-700"
+              <div className="divide-y divide-slate-100 max-h-[380px] overflow-y-auto pr-1 space-y-2">
+                {filteredTransactions.map((tx) => {
+                  const isRefund = tx.referenceType === "REFUND" || tx.transactionType === "IN" || tx.type === "REFUND";
+                  const code = tx.transactionCode || tx.code || "";
+                  return (
+                    <div
+                      key={tx.id}
+                      className="p-3.5 rounded-2xl bg-white border border-slate-100 hover:border-blue-200 hover:shadow-sm transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 group"
+                    >
+                      {/* Left: Icon & Info */}
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div
+                          className={`w-10 h-10 rounded-2xl flex items-center justify-center font-bold text-sm shrink-0 border ${
+                            isRefund
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200/70"
+                              : "bg-blue-50 text-blue-700 border-blue-200/70"
                           }`}
-                      >
-                        {tx.type === "REFUND" ? "+" : "-"}
+                        >
+                          {isRefund ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}
+                        </div>
+
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                isRefund
+                                  ? "bg-emerald-100/80 text-emerald-800"
+                                  : "bg-blue-100/80 text-blue-800"
+                              }`}
+                            >
+                              {isRefund ? "HOÀN TIỀN KHIẾU NẠI" : "THANH TOÁN ĐƠN HÀNG"}
+                            </span>
+                            <span className="text-[11px] text-slate-400">
+                              {formatOrderDate(tx.createdAt)}
+                            </span>
+                          </div>
+
+                          <p className="font-semibold text-slate-800 text-xs sm:text-sm mt-1 leading-snug">
+                            {tx.description || (isRefund ? "Hoàn tiền giao dịch" : "Thanh toán giao dịch")}
+                          </p>
+
+                          {/* Pills for Transaction Code & Reference Order */}
+                          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                            {code && (
+                              <button
+                                type="button"
+                                onClick={() => handleCopyCode(code)}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 text-[10px] font-medium transition-colors cursor-pointer"
+                                title="Bấm để sao chép mã giao dịch đối soát"
+                              >
+                                {copiedTxCode === code ? (
+                                  <>
+                                    <Check size={10} className="text-emerald-600" />
+                                    <span className="text-emerald-700 font-bold">Đã chép</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy size={10} />
+                                    <span>Mã GD: {code}</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+
+                            {tx.referenceId && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-medium">
+                                Đơn: {formatOrderCode(tx.referenceId)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <span className="font-semibold text-slate-800 block">
-                          {tx.description || (tx.type === "REFUND" ? "Tiền hoàn đơn #" : "Thanh toán đơn #")}
-                          {tx.orderId ? ` ${tx.orderId}` : ""}
+
+                      {/* Right: Amount & Actions */}
+                      <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100 shrink-0">
+                        <span
+                          className={`font-black text-sm sm:text-base block ${
+                            isRefund ? "text-emerald-600" : "text-slate-800"
+                          }`}
+                        >
+                          {isRefund ? "+" : "-"} {fmt(tx.amount)}
                         </span>
-                        <p className="text-[10px] text-slate-400 mt-0.5">{tx.createdAt}</p>
+                        
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200/50">
+                            THÀNH CÔNG
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTx(tx)}
+                            className="text-[11px] text-blue-600 hover:text-blue-800 font-medium underline cursor-pointer"
+                          >
+                            Biên lai
+                          </button>
+                        </div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <span
-                        className={`font-black text-sm block ${tx.type === "REFUND" ? "text-emerald-600" : "text-slate-800"
-                          }`}
-                      >
-                        {tx.type === "REFUND" ? "+" : "-"}
-                        {fmt(tx.amount)}
-                      </span>
-                      <span className="text-[10px] uppercase font-bold text-emerald-600">
-                        {tx.status || "THÀNH CÔNG"}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </Card>
@@ -934,6 +1147,125 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
               </Btn>
               <Btn onClick={() => setShowDeleteModal(false)} variant="ghost" size="md">
                 Hủy bỏ
+              </Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Transaction Detail / E-Receipt Modal */}
+      {selectedTx && (
+        <Modal
+          isOpen={!!selectedTx}
+          onClose={() => setSelectedTx(null)}
+          title="Biên lai giao dịch điện tử"
+        >
+          <div className="space-y-4">
+            <div className="text-center py-4 px-3 bg-gradient-to-b from-slate-50 to-white rounded-2xl border border-slate-200">
+              <div
+                className={`w-12 h-12 mx-auto rounded-full flex items-center justify-center mb-2 font-bold ${
+                  selectedTx.referenceType === "REFUND" || selectedTx.transactionType === "IN" || selectedTx.type === "REFUND"
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-blue-100 text-blue-700"
+                }`}
+              >
+                <Receipt size={24} />
+              </div>
+              <p className="text-xs text-slate-500 font-medium">Biến động số dư</p>
+              <p
+                className={`text-2xl font-black mt-0.5 ${
+                  selectedTx.referenceType === "REFUND" || selectedTx.transactionType === "IN" || selectedTx.type === "REFUND"
+                    ? "text-emerald-600"
+                    : "text-slate-900"
+                }`}
+              >
+                {selectedTx.referenceType === "REFUND" || selectedTx.transactionType === "IN" || selectedTx.type === "REFUND" ? "+" : "-"} {fmt(selectedTx.amount)}
+              </p>
+              <span className="inline-block mt-2 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">
+                Giao dịch thành công
+              </span>
+            </div>
+
+            <div className="bg-slate-50/80 rounded-2xl p-4 border border-slate-200 space-y-2.5 text-xs">
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-slate-500">Mã giao dịch hệ thống</span>
+                <span className="font-mono text-slate-800 font-medium select-all text-[11px]">
+                  {selectedTx.id}
+                </span>
+              </div>
+
+              {(selectedTx.transactionCode || selectedTx.code) && (
+                <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500">Mã đối soát cổng TT</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-mono font-bold text-slate-800 select-all">
+                      {selectedTx.transactionCode || selectedTx.code}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyCode(selectedTx.transactionCode || selectedTx.code || "")}
+                      className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                      title="Sao chép"
+                    >
+                      {copiedTxCode === (selectedTx.transactionCode || selectedTx.code) ? (
+                        <Check size={12} className="text-emerald-600" />
+                      ) : (
+                        <Copy size={12} />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-slate-500">Loại nghiệp vụ</span>
+                <span className="font-semibold text-slate-800">
+                  {selectedTx.referenceType || (selectedTx.type === "REFUND" ? "REFUND" : "ORDER_PAYMENT")}
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-slate-500">Chiều dòng tiền</span>
+                <span
+                  className={`font-bold ${
+                    selectedTx.transactionType === "IN" || selectedTx.type === "REFUND"
+                      ? "text-emerald-600"
+                      : "text-blue-700"
+                  }`}
+                >
+                  {selectedTx.transactionType === "IN" || selectedTx.type === "REFUND"
+                    ? "Cộng vào tài khoản / Tiền hoàn (+)"
+                    : "Trừ tài khoản / Tiền thanh toán (-)"}
+                </span>
+              </div>
+
+              {(selectedTx.referenceId || selectedTx.orderId) && (
+                <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                  <span className="text-slate-500">Đơn hàng liên quan</span>
+                  <span className="font-mono text-slate-800 font-semibold">
+                    {formatOrderCode(selectedTx.referenceId || selectedTx.orderId || "")}
+                  </span>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-slate-500">Thời gian ghi nhận</span>
+                <span className="text-slate-800 font-medium">
+                  {formatOrderDate(selectedTx.createdAt)}
+                </span>
+              </div>
+
+              <div className="py-1">
+                <span className="text-slate-500 block mb-1">Diễn giải</span>
+                <p className="text-slate-800 leading-relaxed font-medium bg-white p-2.5 rounded-xl border border-slate-200">
+                  {selectedTx.description || "Giao dịch thanh toán mua sách trên sàn BookVerse."}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-1">
+              <Btn onClick={() => setSelectedTx(null)} color="#1d4ed8" size="md" className="w-full">
+                Đóng biên lai
               </Btn>
             </div>
           </div>
