@@ -37,7 +37,7 @@ const AppContent: React.FC = () => {
   );
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [selectedShopId, setSelectedShopId] = useState<number>(1);
+  const [selectedShopId, setSelectedShopId] = useState<number | string>(1);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
 
@@ -199,16 +199,18 @@ const AppContent: React.FC = () => {
         onClose={() => setAuthModalOpen(false)}
       />
 
-      <ChatDrawer
-        isOpen={chatDrawerOpen}
-        onClose={() => setChatDrawerOpen(false)}
-        shopId={selectedShopId}
-        onSelectBook={(book) => {
-          setSelectedBook(book);
-          setCustomerPage("book");
-          setChatDrawerOpen(false);
-        }}
-      />
+      {chatDrawerOpen && (
+        <ChatDrawer
+          isOpen={chatDrawerOpen}
+          onClose={() => setChatDrawerOpen(false)}
+          shopId={selectedShopId}
+          onSelectBook={(book) => {
+            setSelectedBook(book);
+            setCustomerPage("book");
+            setChatDrawerOpen(false);
+          }}
+        />
+      )}
 
       {customerPage !== "shopDashboard" && role !== "admin" && role !== "deliver" && <Footer />}
     </div>

@@ -1,4 +1,4 @@
-import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
+import axios, { AxiosError, InternalAxiosRequestConfig, AxiosResponse, AxiosRequestConfig } from "axios";
 import { getStoredToken, removeStoredToken } from "../utils/storage";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "/api";
@@ -12,6 +12,36 @@ export const apiClient = axios.create({
   },
   timeout: API_TIMEOUT,
 });
+
+// Tầng In-Flight Deduplication cho các request GET đồng thời:
+// Tránh gửi nhiều request giống hệt nhau lên Backend khi React mount kép (StrictMode) hoặc nhiều component cùng gọi.
+const inFlightGetRequests = new Map<string, Promise<any>>();
+
+const originalGet = apiClient.get.bind(apiClient);
+
+apiClient.get = function <T = any, R = axios.AxiosResponse<T>, D = any>(
+  url: string,
+  config?: axios.AxiosRequestConfig<D>
+): Promise<R> {
+  // Cho phép bypass nếu cần ép buộc tải lại
+  if (config?.headers && (config.headers as any)["x-skip-dedupe"]) {
+    return originalGet<T, R, D>(url, config);
+  }
+
+  const paramKey = config?.params ? JSON.stringify(config.params) : "";
+  const cacheKey = `GET:${url}:${paramKey}`;
+
+  if (inFlightGetRequests.has(cacheKey)) {
+    return inFlightGetRequests.get(cacheKey) as Promise<R>;
+  }
+
+  const promise = originalGet<T, R, D>(url, config).finally(() => {
+    inFlightGetRequests.delete(cacheKey);
+  });
+
+  inFlightGetRequests.set(cacheKey, promise);
+  return promise;
+};
 
 // Request Interceptor: Tự động đính kèm JWT Bearer Token
 apiClient.interceptors.request.use(

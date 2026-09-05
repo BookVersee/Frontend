@@ -43,12 +43,14 @@ export const notificationService = {
         .map((n: any) => ({
           id: n.id,
           userId: n.userId || userId || "",
-          title: n.title || (n.type === "CHAT" ? "Tin nhắn mới" : "Thông báo hệ thống"),
+          title: n.title || (n.type === "CHAT" ? "Tin nhắn mới" : n.type === "ORDER_UPDATE" ? "Cập nhật đơn hàng" : "Thông báo hệ thống"),
           message: n.content || n.message || "",
           read: n.isRead ?? n.read ?? false,
           createdAt: n.createdAt ? new Date(n.createdAt).toLocaleString("vi-VN") : "Vừa xong",
           type: n.type || "SYSTEM",
-          link: n.link,
+          link: n.referenceId ? `/orders?id=${n.referenceId}` : n.link,
+          referenceId: n.referenceId,
+          imageUrl: n.imageUrl,
         }));
     } catch (error) {
       console.warn("[notificationService] getNotifications API error:", error);
@@ -68,12 +70,14 @@ export const notificationService = {
         .map((n: any) => ({
           id: n.id,
           userId: n.userId || userId || "",
-          title: n.title || (n.type === "CHAT" ? "Tin nhắn mới" : "Thông báo hệ thống"),
+          title: n.title || (n.type === "CHAT" ? "Tin nhắn mới" : n.type === "ORDER_UPDATE" ? "Cập nhật đơn hàng" : "Thông báo hệ thống"),
           message: n.content || n.message || "",
           read: false,
           createdAt: n.createdAt ? new Date(n.createdAt).toLocaleString("vi-VN") : "Vừa xong",
           type: n.type || "SYSTEM",
-          link: n.link,
+          link: n.referenceId ? `/orders?id=${n.referenceId}` : n.link,
+          referenceId: n.referenceId,
+          imageUrl: n.imageUrl,
         }));
     } catch (error) {
       console.warn("[notificationService] getUnreadNotifications API error:", error);
@@ -105,23 +109,22 @@ export const notificationService = {
     }
   },
 
-  // 5. Xóa 1 thông báo (Local Soft-Delete & Đề xuất gọi API Backend nếu có)
+  // 5. Ẩn/Xóa 1 thông báo khỏi danh sách máy khách (đồng thời đánh dấu đã đọc trên DB)
   async deleteNotification(id: string | number, userId?: string | number): Promise<boolean> {
     addDeletedId(id, userId);
     try {
-      // Gọi thử API Backend nếu tương lai Backend cập nhật endpoint xóa
-      await apiClient.delete(`/notifications/DeleteNotification`, { params: { id } });
-    } catch {
-      // Backend chưa có endpoint xóa thì âm thầm lưu local soft-delete
-    }
+      // Đánh dấu đã đọc trên server
+      await apiClient.put("/notifications/MarkAsRead", null, { params: { id } });
+    } catch {}
     return true;
   },
 
-  // 6. Xóa tất cả thông báo hiện có
+  // 6. Dọn dẹp/Ẩn toàn bộ thông báo (Đánh dấu đã đọc trên DB và ẩn trên máy khách, không gọi API 404)
   async deleteAllNotifications(ids: (string | number)[], userId?: string | number): Promise<boolean> {
     addDeletedIds(ids, userId);
     try {
-      await apiClient.delete(`/notifications/DeleteAllNotifications`);
+      // Đồng bộ đánh dấu tất cả đã đọc lên Backend qua API hợp lệ
+      await apiClient.put("/notifications/MarkAllAsRead");
     } catch {}
     return true;
   },

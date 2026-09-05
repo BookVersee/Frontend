@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Store, MapPin, Phone, Star, ArrowLeft, MessageSquare, BookOpen, ShieldCheck } from "lucide-react";
 import { Shop, Book } from "../../types";
 import { bookService } from "../../services/bookService";
@@ -9,7 +9,7 @@ import { fmt } from "../../utils/format";
 import { ChatDrawer } from "../../components/chat/ChatDrawer";
 
 interface ShopProfilePageProps {
-  shopId: number;
+  shopId: number | string;
   onBack: () => void;
   onSelectBook: (book: Book) => void;
 }
@@ -23,8 +23,13 @@ export const ShopProfilePage: React.FC<ShopProfilePageProps> = ({
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
+  const loadedShopIdRef = useRef<string | number | null>(null);
 
   useEffect(() => {
+    // Chống gọi lặp API nếu cùng một shopId đã nạp
+    if (loadedShopIdRef.current === shopId) return;
+    loadedShopIdRef.current = shopId;
+
     setLoading(true);
     Promise.all([
       bookService.getShopProfile(shopId),
@@ -158,13 +163,15 @@ export const ShopProfilePage: React.FC<ShopProfilePageProps> = ({
       )}
 
       {/* Chat Drawer */}
-      <ChatDrawer
-        isOpen={chatOpen}
-        onClose={() => setChatOpen(false)}
-        shopId={shop.id}
-        shopName={shop.name}
-        onSelectBook={onSelectBook}
-      />
+      {chatOpen && (
+        <ChatDrawer
+          isOpen={chatOpen}
+          onClose={() => setChatOpen(false)}
+          shopId={shop.id}
+          shopName={shop.name}
+          onSelectBook={onSelectBook}
+        />
+      )}
     </div>
   );
 };
