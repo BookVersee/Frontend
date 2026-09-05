@@ -61,11 +61,37 @@ export interface Book {
 }
 
 export interface CartItem {
+  cartDetailId?: string;
   book: Book;
   quantity: number;
 }
 
+export interface BackendCartItemResponse {
+  cartDetailId: string;
+  bookId: string;
+  bookTitle: string;
+  bookImage?: string;
+  unitPrice: number;
+  quantity: number;
+  totalPrice: number;
+}
+
+export interface BackendShopGroupResponse {
+  shopId: string;
+  shopName: string;
+  items: BackendCartItemResponse[];
+  shopSubtotal: number;
+}
+
+export interface BackendCartResponse {
+  cartId: string;
+  userId: string;
+  shopGroups: BackendShopGroupResponse[];
+  grandTotal: number;
+}
+
 export interface OrderItem {
+  orderDetailId?: string;
   book: Book;
   quantity: number;
   unitPrice: number;
@@ -209,6 +235,8 @@ export interface AppNotification {
   createdAt: string;
   type: "ORDER" | "REFUND" | "CHAT" | "SYSTEM";
   link?: string;
+  referenceId?: string;
+  imageUrl?: string;
 }
 
 export interface ChatMessage {

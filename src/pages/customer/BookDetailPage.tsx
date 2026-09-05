@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   ArrowLeft,
   Star,
@@ -22,7 +22,7 @@ import { Btn } from "../../components/common/Btn";
 import { Card } from "../../components/common/Card";
 import { fmt } from "../../utils/format";
 import { bookService } from "../../services/bookService";
-import { orderService } from "../../services/orderService";
+import { feedbackService } from "../../services/feedbackService";
 import { useCart } from "../../contexts/CartContext";
 import { ChatDrawer } from "../../components/chat/ChatDrawer";
 
@@ -43,38 +43,29 @@ export const BookDetailPage: React.FC<BookDetailPageProps> = ({
   const [added, setAdded] = useState(false);
   const [reviews, setReviews] = useState<OrderFeedback[]>([]);
   const [chatOpen, setChatOpen] = useState(false);
-  const [reportedIds, setReportedIds] = useState<number[]>([]);
+  const [reportedIds, setReportedIds] = useState<(string | number)[]>([]);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const { addToCart } = useCart();
+  const loadedBookIdRef = useRef<string | number | null>(null);
 
   useEffect(() => {
+    // Chống gọi lặp API nếu cùng một cuốn sách
+    if (loadedBookIdRef.current === book.id) return;
+    loadedBookIdRef.current = book.id;
+
     bookService.getCategories().then(setCategories);
-    // Tải thông tin chi tiết đầy đủ của sách (kèm danh sách ảnh)
+    
+    // 1. Tải thông tin chi tiết đầy đủ của sách (kèm danh sách ảnh)
     bookService.getBookById(book.id).then((detailed) => {
       if (detailed) {
         setCurrentBook(detailed);
       }
     });
 
-    orderService.getOrders().then((orders) => {
-      const revs: OrderFeedback[] = orders
-        .filter((o) => o.feedback)
-        .map((o) => ({
-          id: o.id,
-          orderId: o.id,
-          rating: o.feedback!.rating,
-          content: o.feedback!.content,
-          customer: o.feedback!.customer || o.customerName,
-          customerName: o.feedback!.customer || o.customerName,
-          createdAt: o.feedback!.createdAt,
-          type: "SHOP",
-          shopReply: o.feedback!.shopReply,
-          shopRepliedAt: o.feedback!.shopRepliedAt,
-          isReported: o.feedback!.isReported,
-        }))
-        .slice(0, 4);
-      setReviews(revs);
+    // 2. Tải đánh giá thực tế của sách từ API Database (Không gọi getOrders)
+    feedbackService.getBookFeedbacks(book.id).then((feedbacks) => {
+      setReviews(feedbacks);
     });
   }, [book.id]);
 
@@ -84,9 +75,9 @@ export const BookDetailPage: React.FC<BookDetailPageProps> = ({
     setTimeout(() => setAdded(false), 1800);
   };
 
-  const handleReport = async (orderId: number) => {
-    await orderService.reportFeedback(orderId, "Phản hồi có nội dung không phù hợp");
-    setReportedIds((prev) => [...prev, orderId]);
+  const handleReport = async (responseId: string | number) => {
+    await feedbackService.reportResponse(responseId, "Phản hồi có nội dung không phù hợp");
+    setReportedIds((prev) => [...prev, responseId]);
   };
 
   const categoryName = categories.find((c) => c.id === currentBook.categoryId)?.name || "Sách";
@@ -394,19 +385,21 @@ export const BookDetailPage: React.FC<BookDetailPageProps> = ({
         </div>
       )}
 
-      {/* Chat Drawer */}
-      <ChatDrawer
-        isOpen={chatOpen}
-        onClose={() => setChatOpen(false)}
-        shopId={currentBook.shopId}
-        shopName={currentBook.shopName}
-        book={currentBook}
-        onSelectBook={(newBook) => {
-          setCurrentBook(newBook);
-          setChatOpen(false);
-          window.scrollTo({ top: 0, behavior: "smooth" });
-        }}
-      />
+      {/* Chat Drawer - Chỉ render khi người dùng thực sự bấm Chat với Shop */}
+      {chatOpen && (
+        <ChatDrawer
+          isOpen={chatOpen}
+          onClose={() => setChatOpen(false)}
+          shopId={currentBook.shopId}
+          shopName={currentBook.shopName}
+          book={currentBook}
+          onSelectBook={(newBook) => {
+            setCurrentBook(newBook);
+            setChatOpen(false);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+        />
+      )}
 
       {/* Full-Screen Image Zoom Modal */}
       {previewModalOpen && activeImage && (

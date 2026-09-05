@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
-import { Book, CartItem } from "../types";
-import { getStoredCart, setStoredCart } from "../utils/storage";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { Book, CartItem, BackendCartResponse } from "../types";
+import { getStoredCart, setStoredCart, getStoredToken } from "../utils/storage";
 import { normalizeBookGuid } from "../utils/guidHelper";
+import { cartService } from "../services/cartService";
 
 interface CartContextType {
   cart: CartItem[];
@@ -9,10 +10,11 @@ interface CartContextType {
   subtotal: number;
   shippingFee: number;
   total: number;
-  addToCart: (book: Book, quantity?: number) => void;
-  updateQuantity: (bookId: string | number, quantity: number) => void;
-  removeFromCart: (bookId: string | number) => void;
-  clearCart: () => void;
+  addToCart: (book: Book, quantity?: number) => Promise<boolean>;
+  updateQuantity: (bookId: string | number, quantity: number) => Promise<void>;
+  removeFromCart: (bookId: string | number) => Promise<void>;
+  clearCart: () => Promise<void>;
+  refreshCart: () => Promise<void>;
   setCart: React.Dispatch<React.SetStateAction<CartItem[]>>;
 
   // Selection state
@@ -61,6 +63,82 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .filter(Boolean);
   });
 
+  // Chuyển đổi dữ liệu BackendCartResponse thành CartItem[] của Frontend
+  const syncWithBackendCart = useCallback((backendCart: BackendCartResponse, currentCart: CartItem[]): CartItem[] => {
+    const existingBookMap = new Map<string, Book>();
+    currentCart.forEach((item) => {
+      if (item?.book?.id) {
+        existingBookMap.set(String(item.book.id).toLowerCase(), item.book);
+      }
+    });
+
+    const items: CartItem[] = [];
+    for (const group of backendCart.shopGroups || []) {
+      for (const bItem of group.items || []) {
+        const bookIdStr = String(bItem.bookId).toLowerCase();
+        const existingBook = existingBookMap.get(bookIdStr);
+
+        const book: Book = existingBook
+          ? {
+              ...existingBook,
+              id: bItem.bookId,
+              title: bItem.bookTitle || existingBook.title,
+              price: bItem.unitPrice || existingBook.price,
+              imageUrl: bItem.bookImage || existingBook.imageUrl,
+              shopId: group.shopId || existingBook.shopId,
+              shopName: group.shopName || existingBook.shopName,
+            }
+          : {
+              id: bItem.bookId,
+              title: bItem.bookTitle,
+              price: bItem.unitPrice,
+              imageUrl: bItem.bookImage,
+              shopId: group.shopId,
+              shopName: group.shopName,
+              coverColor: "#1e3a8a",
+              coverColor2: "#3b82f6",
+              status: "ACTIVE",
+              category: "",
+              author: "",
+              rating: 5,
+              reviewCount: 0,
+              description: "",
+            };
+
+        items.push({
+          cartDetailId: bItem.cartDetailId,
+          book,
+          quantity: bItem.quantity,
+        });
+      }
+    }
+    return items;
+  }, []);
+
+  // Hàm tải lại giỏ hàng từ máy chủ Backend
+  const refreshCart = useCallback(async () => {
+    const token = getStoredToken();
+    if (!token) return;
+
+    const backendCart = await cartService.getCart();
+    if (backendCart) {
+      setCart((prev) => {
+        const updated = syncWithBackendCart(backendCart, prev);
+        setStoredCart(updated);
+        return updated;
+      });
+    }
+  }, [syncWithBackendCart]);
+
+  // Đồng bộ với Backend khi khởi tạo hoặc khi có token
+  useEffect(() => {
+    const token = getStoredToken();
+    if (token) {
+      refreshCart();
+    }
+  }, [refreshCart]);
+
+  // Lưu giỏ hàng vào localStorage mỗi khi state cart thay đổi
   useEffect(() => {
     setStoredCart(cart);
   }, [cart]);
@@ -115,17 +193,23 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const selectedShippingFee = selectedItems.length > 0 ? 30000 : 0;
   const selectedTotal = selectedSubtotal + selectedShippingFee;
 
-  const addToCart = (book: Book, quantity = 1) => {
-    if (!book || !book.id) return;
+  /**
+   * Thêm sản phẩm sách vào giỏ hàng:
+   * 1. Cập nhật ngay state trên Frontend (Optimistic UI)
+   * 2. Gọi ngay lập tức API POST /api/cart/AddToCart lên máy chủ Backend
+   */
+  const addToCart = async (book: Book, quantity = 1): Promise<boolean> => {
+    if (!book || !book.id) return false;
     const normalizedBook: Book = {
       ...book,
       id: normalizeBookGuid(book.id),
     };
     const bookIdStr = String(normalizedBook.id);
-    
+
     // Tự động tick chọn sản phẩm vừa thêm vào giỏ
     setSelectedBookIds((prev) => (prev.includes(bookIdStr) ? prev : [...prev, bookIdStr]));
 
+    // Cập nhật Optimistic vào state React
     setCart((prev) => {
       const existing = prev.find((item) => item?.book && String(item.book.id) === bookIdStr);
       if (existing) {
@@ -137,36 +221,102 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       return [...prev, { book: normalizedBook, quantity }];
     });
+
+    // Nếu người dùng đã đăng nhập, gửi ngay API lên máy chủ Backend
+    const token = getStoredToken();
+    if (token) {
+      try {
+        const backendCart = await cartService.addToCart(normalizedBook.id, quantity);
+        if (backendCart) {
+          setCart((prev) => syncWithBackendCart(backendCart, prev));
+        }
+        return true;
+      } catch (error: any) {
+        console.warn("[CartContext] addToCart server sync error:", error.message);
+        // Có thể hiển thị thông báo lỗi từ Backend nếu hết hàng trong kho
+        return false;
+      }
+    }
+
+    return true;
   };
 
-  const updateQuantity = (bookId: string | number, quantity: number) => {
+  /**
+   * Cập nhật số lượng cuốn sách trong giỏ hàng:
+   * 1. Cập nhật state React
+   * 2. Gọi API PUT /api/cart/UpdateCartItem hoặc DELETE /api/cart/RemoveFromCart
+   */
+  const updateQuantity = async (bookId: string | number, quantity: number) => {
+    const idStr = String(bookId);
+    const targetItem = cart.find((item) => item?.book && String(item.book.id) === idStr);
+
     if (quantity <= 0) {
-      removeFromCart(bookId);
-    } else {
-      setCart((prev) =>
-        prev.map((item) =>
-          item?.book && String(item.book.id) === String(bookId) ? { ...item, quantity } : item
-        )
-      );
+      await removeFromCart(bookId);
+      return;
+    }
+
+    setCart((prev) =>
+      prev.map((item) =>
+        item?.book && String(item.book.id) === idStr ? { ...item, quantity } : item
+      )
+    );
+
+    const token = getStoredToken();
+    if (token && targetItem?.cartDetailId) {
+      try {
+        await cartService.updateCartItem(targetItem.cartDetailId, quantity);
+      } catch (error: any) {
+        console.warn("[CartContext] updateQuantity server sync error:", error.message);
+      }
     }
   };
 
-  const removeFromCart = (bookId: string | number) => {
+  /**
+   * Xóa một cuốn sách khỏi giỏ hàng:
+   * 1. Xóa khỏi state React
+   * 2. Gọi API DELETE /api/cart/RemoveFromCart
+   */
+  const removeFromCart = async (bookId: string | number) => {
     const idStr = String(bookId);
+    const targetItem = cart.find((item) => item?.book && String(item.book.id) === idStr);
+
     setCart((prev) => prev.filter((item) => item?.book && String(item.book.id) !== idStr));
     setSelectedBookIds((prev) => prev.filter((id) => id !== idStr));
+
+    const token = getStoredToken();
+    if (token && targetItem?.cartDetailId) {
+      try {
+        await cartService.removeFromCart(targetItem.cartDetailId);
+      } catch (error: any) {
+        console.warn("[CartContext] removeFromCart server sync error:", error.message);
+      }
+    }
   };
 
-  // Chỉ xóa các món đã được đặt mua thành công, giữ lại các món chưa mua trong giỏ
+  /**
+   * Chỉ xóa các món đã được đặt mua thành công, giữ lại các món chưa mua trong giỏ
+   */
   const removePurchasedItems = (purchasedBookIds: (string | number)[]) => {
     const purchasedSet = new Set(purchasedBookIds.map(String));
     setCart((prev) => prev.filter((item) => item?.book && !purchasedSet.has(String(item.book.id))));
     setSelectedBookIds((prev) => prev.filter((id) => !purchasedSet.has(id)));
   };
 
-  const clearCart = () => {
+  /**
+   * Làm trống toàn bộ giỏ hàng
+   */
+  const clearCart = async () => {
     setCart([]);
     setSelectedBookIds([]);
+
+    const token = getStoredToken();
+    if (token) {
+      try {
+        await cartService.clearCart();
+      } catch (error: any) {
+        console.warn("[CartContext] clearCart server sync error:", error.message);
+      }
+    }
   };
 
   return (
@@ -181,6 +331,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateQuantity,
         removeFromCart,
         clearCart,
+        refreshCart,
         setCart,
         selectedBookIds,
         toggleSelectItem,

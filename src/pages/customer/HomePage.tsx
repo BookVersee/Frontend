@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Search, ShoppingCart, Star, BookOpen, Store } from "lucide-react";
 import { Book, Category } from "../../types";
 import { bookService } from "../../services/bookService";
@@ -10,7 +10,7 @@ import { FeaturedShops } from "../../components/customer/FeaturedShops";
 interface HomePageProps {
   onSelectBook: (book: Book) => void;
   onGoToCart: () => void;
-  onSelectShop?: (shopId: number) => void;
+  onSelectShop?: (shopId: number | string) => void;
 }
 
 export const HomePage: React.FC<HomePageProps> = ({
@@ -24,8 +24,12 @@ export const HomePage: React.FC<HomePageProps> = ({
   const [selectedCatId, setSelectedCatId] = useState(0);
   const [loading, setLoading] = useState(true);
   const { cartCount } = useCart();
+  const isLoadedRef = useRef(false);
 
   useEffect(() => {
+    if (isLoadedRef.current) return;
+    isLoadedRef.current = true;
+
     const fetchData = async () => {
       setLoading(true);
       try {

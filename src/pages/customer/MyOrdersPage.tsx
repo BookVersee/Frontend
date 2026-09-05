@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Truck, Package, Clock, ChevronRight, Store, Copy, Check } from "lucide-react";
 import { Order, OrderStatus } from "../../types";
 import { orderService } from "../../services/orderService";
@@ -21,11 +21,16 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<"ALL" | OrderStatus>("ALL");
+  const loadedUserIdRef = useRef<string | number | null>(null);
 
   useEffect(() => {
+    const currentUserId = user?.id || 1;
+    if (loadedUserIdRef.current === currentUserId) return;
+    loadedUserIdRef.current = currentUserId;
+
     setLoading(true);
     orderService
-      .getOrders(user?.id || 1)
+      .getOrders(currentUserId)
       .then(setOrders)
       .finally(() => setLoading(false));
 

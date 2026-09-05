@@ -146,9 +146,9 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
     };
   }, [isDraggingCol1, isDraggingCol3]);
 
-  // Tải thông tin Shop Profile & Đơn hàng của khách tại shop này khi đổi shop
+  // Tải thông tin Shop Profile & Đơn hàng của khách tại shop này khi đổi shop (Chỉ tải khi khung chat mở)
   useEffect(() => {
-    if (!currentShopId) return;
+    if (!isOpen || !currentShopId) return;
 
     // 1. Tải hồ sơ Shop
     bookService.getShopProfile(currentShopId).then((profile) => {
@@ -165,7 +165,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
       // Nếu chưa có đơn cụ thể của shop, lấy các đơn gần đây của khách để hỗ trợ đối soát
       setShopOrders(specific.length > 0 ? specific : orders.slice(0, 3));
     });
-  }, [currentShopId, currentShopName, user?.id]);
+  }, [isOpen, currentShopId, currentShopName, user?.id]);
 
   // Mở trang chi tiết sách khi khách hàng click vào thẻ sản phẩm
   const handleOpenBookDetail = async (product: ProductCardData) => {

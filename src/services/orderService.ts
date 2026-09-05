@@ -2,6 +2,7 @@ import { apiClient } from "./api";
 import { Order, CartItem, PaymentMethod, ApiResponse } from "../types";
 import { INITIAL_ORDERS } from "./mockData";
 import { normalizeBookGuid, generateGuid } from "../utils/guidHelper";
+import { cartService } from "./cartService";
 
 export const orderService = {
   async getOrders(customerId?: string | number): Promise<Order[]> {
@@ -22,6 +23,7 @@ export const orderService = {
           ];
           const colorPair = colors[Math.abs(String(od.bookId || idx).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0)) % colors.length];
           return {
+            orderDetailId: od.orderDetailId || od.id,
             book: {
               id: od.bookId,
               title: od.bookTitle,
@@ -81,6 +83,7 @@ export const orderService = {
           ];
           const colorPair = colors[Math.abs(String(od.bookId || idx).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0)) % colors.length];
           return {
+            orderDetailId: od.orderDetailId || od.id,
             book: {
               id: od.bookId,
               title: od.bookTitle,
@@ -127,44 +130,41 @@ export const orderService = {
     shippingAddress: string;
     note?: string;
   }): Promise<Order[]> {
-    const { customerId, customerName, customerPhone, cart, remainingCart, paymentMethod, shippingAddress, note } = params;
+    const { customerId, customerName, customerPhone, cart, paymentMethod, shippingAddress, note } = params;
 
     try {
-      // 1. Đồng bộ các sản phẩm được chọn mua lên Database Cart của Backend
-      await apiClient.delete("/cart/ClearCart"); // Làm trống giỏ hàng cũ trên DB
-      
+      // 1. Thu thập danh sách cartDetailId của các mặt hàng được chọn
+      const selectedCartItemIds: string[] = [];
       for (const item of cart) {
-        const validBookId = normalizeBookGuid(item.book.id);
-        await apiClient.post("/cart/AddToCart", {
-          bookId: validBookId,
-          quantity: item.quantity
-        });
+        if (item.cartDetailId) {
+          selectedCartItemIds.push(item.cartDetailId);
+        } else {
+          // Fallback an toàn: nếu món chưa có trên DB (ví dụ thêm lúc offline), thêm lên DB để lấy ID
+          try {
+            const backendCart = await cartService.addToCart(item.book.id, item.quantity);
+            const found = backendCart?.shopGroups
+              ?.flatMap((g) => g.items)
+              ?.find((bi) => String(bi.bookId).toLowerCase() === String(item.book.id).toLowerCase());
+            if (found?.cartDetailId) {
+              selectedCartItemIds.push(found.cartDetailId);
+            }
+          } catch (e) {
+            console.warn("Could not sync item to DB before order:", e);
+          }
+        }
       }
 
-      // 2. Gọi API tạo đơn hàng từ Giỏ hàng vừa đồng bộ
+      // 2. Gọi duy nhất 1 API tạo đơn hàng, truyền SelectedCartItemIds để Backend tự động trừ đúng sản phẩm đã mua
       const res = await apiClient.post<ApiResponse<any>>("/orders/CreateOrder", {
+        selectedCartItemIds: selectedCartItemIds.length > 0 ? selectedCartItemIds : undefined,
         shippingAddress,
         paymentMethod: paymentMethod === "ONLINE" ? "ONLINE" : "COD",
         note: note || "",
       });
 
-      // 3. Nếu còn các sản phẩm khác trong giỏ hàng chưa mua, đồng bộ lại lên Backend Cart
-      if (remainingCart && remainingCart.length > 0) {
-        for (const remItem of remainingCart) {
-          try {
-            const validBookId = normalizeBookGuid(remItem.book.id);
-            await apiClient.post("/cart/AddToCart", {
-              bookId: validBookId,
-              quantity: remItem.quantity,
-            });
-          } catch (e) {
-            console.warn("Could not sync remaining cart item back to DB:", e);
-          }
-        }
-      }
-
       const orderRes = res.data.data;
-      const items = orderRes.orderDetails.map((od: any) => ({
+      const items = (orderRes.orderDetails || []).map((od: any) => ({
+        orderDetailId: od.orderDetailId || od.id,
         book: {
           id: od.bookId,
           title: od.bookTitle,
