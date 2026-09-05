@@ -166,16 +166,34 @@ export interface Order {
   returnRequest?: ReturnRequest;
 }
 
+export interface BackendTransactionResponse {
+  id: string;
+  userId: string;
+  referenceType?: "ORDER_PAYMENT" | "REFUND" | "SHIPPING_FEE" | "SHOP_REVENUE" | "WITHDRAWAL" | string;
+  referenceId?: string | null;
+  transactionType?: "IN" | "OUT" | string;
+  amount: number;
+  transactionCode?: string | null;
+  description?: string | null;
+  createdAt: string;
+}
+
 export interface Transaction {
   id: string | number;
   orderId?: string | number;
   userId?: string | number;
   amount: number;
-  type: "ONLINE" | "COD" | "SHIPPING_FEE" | "REFUND" | "SHOP_REVENUE" | "TOPUP";
-  paidBy: string;
+  type: "ONLINE" | "COD" | "SHIPPING_FEE" | "REFUND" | "SHOP_REVENUE" | "TOPUP" | string;
+  paidBy?: string;
   createdAt: string;
   code?: string;
-  status?: "SUCCESS" | "PENDING" | "FAILED";
+  status?: "SUCCESS" | "PENDING" | "FAILED" | string;
+  // Các trường nghiệp vụ chính từ Backend DTO
+  referenceType?: "ORDER_PAYMENT" | "REFUND" | "SHIPPING_FEE" | "SHOP_REVENUE" | "WITHDRAWAL" | string;
+  referenceId?: string;
+  transactionType?: "IN" | "OUT";
+  transactionCode?: string;
+  description?: string;
 }
 
 export interface DeliveryTask {
