@@ -157,7 +157,7 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({
                   <div className="space-y-3">
                     {order.items.map((item, idx) => (
                       <div key={idx} className="flex items-center gap-3.5">
-                        <div className="shrink-0 w-12 h-16 rounded-lg overflow-hidden shadow-2xs border border-slate-200 bg-slate-100 flex items-center justify-center">
+                        <div className="shrink-0 w-14 h-20 rounded-lg overflow-hidden shadow-2xs border border-slate-200 bg-slate-100 flex items-center justify-center">
                           {item.book.imageUrl ? (
                             <img
                               src={item.book.imageUrl}
@@ -165,7 +165,7 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({
                               className="w-full h-full object-cover"
                             />
                           ) : (
-                            <BookCover book={item.book} size="sm" />
+                            <BookCover book={item.book} size="xs" />
                           )}
                         </div>
                         <div className="flex-1 min-w-0">

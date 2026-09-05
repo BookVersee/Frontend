@@ -1503,7 +1503,7 @@ export const ShopDashboardPage: React.FC = () => {
                       {order.items.map((i, idx) => (
                         <div key={idx} className="flex items-center justify-between gap-3">
                           <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="w-8 h-11 rounded shrink-0 overflow-hidden bg-white border border-slate-200 flex items-center justify-center">
+                            <div className="w-10 h-14 rounded shrink-0 overflow-hidden bg-white border border-slate-200 flex items-center justify-center">
                               {i.book.imageUrl ? (
                                 <img
                                   src={i.book.imageUrl}
@@ -1511,7 +1511,7 @@ export const ShopDashboardPage: React.FC = () => {
                                   className="w-full h-full object-cover"
                                 />
                               ) : (
-                                <BookCover book={i.book} size="sm" />
+                                <BookCover book={i.book} size="xs" />
                               )}
                             </div>
                             <span className="truncate font-medium text-slate-700" title={i.book.title}>

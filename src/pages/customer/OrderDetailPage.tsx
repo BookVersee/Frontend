@@ -293,8 +293,8 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
               key={item.book.id}
               className="flex items-center gap-4 border-b border-slate-100 last:border-0 pb-3 last:pb-0"
             >
-              <div className="w-12 shrink-0">
-                <BookCover book={item.book} size="sm" />
+              <div className="w-16 h-22 shrink-0 rounded-xl overflow-hidden shadow-xs border border-slate-200/80 bg-slate-50 flex items-center justify-center">
+                <BookCover book={item.book} size="xs" />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-slate-800 line-clamp-1">

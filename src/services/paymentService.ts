@@ -1,5 +1,6 @@
 import { apiClient } from "./api";
 import { ApiResponse } from "../types";
+import { isValidGuid } from "../utils/guidHelper";
 
 export interface PaymentUrlResponse {
   payment_url: string;
@@ -15,9 +16,27 @@ export const paymentService = {
     amount?: number;
     orderInfo?: string;
   }): Promise<PaymentUrlResponse | null> {
+    // Nếu orderId không phải GUID (chế độ demo/mock), kích hoạt trực tiếp Demo QR modal để tránh lỗi 400 từ Backend
+    if (!isValidGuid(params.orderId)) {
+      console.warn("createMomoUrl: orderId không phải GUID hợp lệ, chuyển sang In-App Demo QR:", params.orderId);
+      const demoOrderId = params.orderId;
+      const demoAmount = params.amount || 150000;
+      const demoQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(
+        `2|99|0901234567|BOOKVERSE STORE|bookverse@gmail.com|0|0|${demoAmount}|Thanh toan don hang ${demoOrderId}|transfer_p2p`
+      )}`;
+      return {
+        payment_url: "",
+        qr_code_url: demoQrUrl,
+        deeplink: `momo://app?action=payWithApp&isScanQR=true`,
+        isRealGateway: false,
+      };
+    }
+
     try {
       const res = await apiClient.post<ApiResponse<PaymentUrlResponse>>("/payment/CreatePaymentUrl", {
+        orderId: params.orderId,
         order_id: params.orderId,
+        orderInfo: params.orderInfo || `Thanh toan don hang MoMo ${params.orderId}`,
         order_info: params.orderInfo || `Thanh toan don hang MoMo ${params.orderId}`,
       });
       const data = res.data.data;
@@ -55,10 +74,16 @@ export const paymentService = {
     orderInfo?: string;
     bankCode?: string;
   }): Promise<string | null> {
+    if (!isValidGuid(params.orderId)) {
+      return null;
+    }
     try {
       const res = await apiClient.post<ApiResponse<PaymentUrlResponse>>("/payment/CreateVnpayUrl", {
+        orderId: params.orderId,
         order_id: params.orderId,
+        orderInfo: params.orderInfo || `Thanh toan don hang ${params.orderId}`,
         order_info: params.orderInfo || `Thanh toan don hang ${params.orderId}`,
+        bankCode: params.bankCode || "",
         bank_code: params.bankCode || "",
       });
       return res.data.data?.payment_url || (res.data as any)?.payment_url || null;
@@ -77,9 +102,12 @@ export const paymentService = {
   }): Promise<boolean> {
     try {
       await apiClient.post("/payment/ProcessRefund", {
+        orderId: params.orderId,
         order_id: params.orderId,
+        returnRequestId: params.returnRequestId,
         return_request_id: params.returnRequestId,
         amount: params.amount,
+        refundReason: params.reason || "Hoàn tiền đơn hàng qua MoMo",
         refund_reason: params.reason || "Hoàn tiền đơn hàng qua MoMo",
       });
       return true;

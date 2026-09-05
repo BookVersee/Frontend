@@ -1,6 +1,7 @@
 import { apiClient } from "./api";
 import { Order, CartItem, PaymentMethod, ApiResponse } from "../types";
 import { INITIAL_ORDERS } from "./mockData";
+import { normalizeBookGuid, generateGuid } from "../utils/guidHelper";
 
 export const orderService = {
   async getOrders(customerId?: string | number): Promise<Order[]> {
@@ -121,19 +122,21 @@ export const orderService = {
     customerName: string;
     customerPhone: string;
     cart: CartItem[];
+    remainingCart?: CartItem[];
     paymentMethod: PaymentMethod;
     shippingAddress: string;
     note?: string;
   }): Promise<Order[]> {
-    const { customerId, customerName, customerPhone, cart, paymentMethod, shippingAddress, note } = params;
+    const { customerId, customerName, customerPhone, cart, remainingCart, paymentMethod, shippingAddress, note } = params;
 
     try {
-      // 1. Đồng bộ giỏ hàng cục bộ từ LocalStorage lên Database Cart của Backend trước
+      // 1. Đồng bộ các sản phẩm được chọn mua lên Database Cart của Backend
       await apiClient.delete("/cart/ClearCart"); // Làm trống giỏ hàng cũ trên DB
       
       for (const item of cart) {
+        const validBookId = normalizeBookGuid(item.book.id);
         await apiClient.post("/cart/AddToCart", {
-          bookId: item.book.id,
+          bookId: validBookId,
           quantity: item.quantity
         });
       }
@@ -144,6 +147,21 @@ export const orderService = {
         paymentMethod: paymentMethod === "ONLINE" ? "ONLINE" : "COD",
         note: note || "",
       });
+
+      // 3. Nếu còn các sản phẩm khác trong giỏ hàng chưa mua, đồng bộ lại lên Backend Cart
+      if (remainingCart && remainingCart.length > 0) {
+        for (const remItem of remainingCart) {
+          try {
+            const validBookId = normalizeBookGuid(remItem.book.id);
+            await apiClient.post("/cart/AddToCart", {
+              bookId: validBookId,
+              quantity: remItem.quantity,
+            });
+          } catch (e) {
+            console.warn("Could not sync remaining cart item back to DB:", e);
+          }
+        }
+      }
 
       const orderRes = res.data.data;
       const items = orderRes.orderDetails.map((od: any) => ({
@@ -179,9 +197,9 @@ export const orderService = {
     } catch (error) {
       console.warn("createOrder API error, falling back to mock:", error);
       // Group by shopId (Fallback)
-      const shopGroups = new Map<number, CartItem[]>();
+      const shopGroups = new Map<number | string, CartItem[]>();
       cart.forEach((item) => {
-        const shopId = item.book.shopId as number;
+        const shopId = item.book.shopId;
         const group = shopGroups.get(shopId) || [];
         group.push(item);
         shopGroups.set(shopId, group);
@@ -191,13 +209,12 @@ export const orderService = {
       const now = new Date();
       const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 
-      let baseId = 1000 + Math.floor(Math.random() * 8000);
       shopGroups.forEach((items, shopId) => {
         const totalAmount = items.reduce((s, i) => s + i.book.price * i.quantity, 0);
         const shippingFee = 30000;
         const shopName = items[0]?.book.shopName || "Nhà sách đối tác";
         const newOrder: Order = {
-          id: baseId++,
+          id: generateGuid(),
           customerId,
           customerName,
           customerPhone,

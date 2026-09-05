@@ -3,17 +3,19 @@ import { Book } from "../../types";
 
 interface BookCoverProps {
   book: Book;
-  size?: "sm" | "md" | "lg";
+  size?: "xs" | "sm" | "md" | "lg";
   className?: string;
 }
 
 const DIMS = {
-  sm: { w: 90, h: 130 },
+  xs: { w: 60, h: 84 },
+  sm: { w: 80, h: 115 },
   md: { w: 130, h: 185 },
   lg: { w: 175, h: 250 },
 };
 
 const FONT_SIZES = {
+  xs: 8,
   sm: 9,
   md: 11,
   lg: 13,
