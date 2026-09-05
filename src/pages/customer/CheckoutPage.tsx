@@ -35,8 +35,27 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
   onBack,
   onSuccess,
 }) => {
-  const { cart, subtotal, shippingFee, total, clearCart } = useCart();
+  const {
+    cart,
+    selectedItems,
+    selectedSubtotal,
+    selectedShippingFee,
+    selectedTotal,
+    removePurchasedItems,
+    subtotal: fullSubtotal,
+    shippingFee: fullShippingFee,
+    total: fullTotal,
+    clearCart,
+  } = useCart();
   const { user } = useAuth();
+
+  // Ưu tiên các sản phẩm đã được tick chọn trong giỏ hàng. Nếu không có bộ lọc, fallback sang toàn bộ giỏ
+  const checkoutItems = selectedItems.length > 0 ? selectedItems : cart;
+  const checkoutSubtotal = selectedItems.length > 0 ? selectedSubtotal : fullSubtotal;
+  const checkoutShippingFee = selectedItems.length > 0 ? selectedShippingFee : fullShippingFee;
+  const checkoutTotal = selectedItems.length > 0 ? selectedTotal : fullTotal;
+  const purchasedBookIds = checkoutItems.map((i) => i.book.id);
+  const remainingCartItems = cart.filter((i) => !purchasedBookIds.includes(i.book.id));
 
   const [selectedGateway, setSelectedGateway] = useState<SelectedGateway>("MOMO");
   const [address, setAddress] = useState(user?.address || "123 Nguyễn Huệ, Quận 1, TP.HCM");
@@ -124,12 +143,13 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
     const paymentMethod: PaymentMethod = selectedGateway === "COD" ? "COD" : "ONLINE";
 
     try {
-      // 1. Tạo đơn hàng trên hệ thống
+      // 1. Tạo đơn hàng trên hệ thống với các mặt hàng đã được tick chọn
       const orders = await orderService.createOrder({
         customerId: user?.id || 1,
         customerName,
         customerPhone: phone,
-        cart,
+        cart: checkoutItems,
+        remainingCart: remainingCartItems,
         paymentMethod,
         shippingAddress: address,
         note,
@@ -144,12 +164,12 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
       if (selectedGateway === "MOMO") {
         const momoRes = await paymentService.createMomoUrl({
           orderId,
-          amount: total,
+          amount: checkoutTotal,
           orderInfo: `Thanh toan don hang BookVerse #${String(orderId).slice(0, 8)}`,
         });
 
         if (momoRes?.isRealGateway && momoRes.payment_url) {
-          clearCart();
+          removePurchasedItems(purchasedBookIds);
           // Điều hướng sang cổng MoMo Sandbox trực tiếp nếu có URL hợp lệ từ Backend
           window.location.href = momoRes.payment_url;
           return;
@@ -158,11 +178,11 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
         // Nếu ở chế độ Demo/Sandbox hoặc có QR Code -> Mở MoMo QR Modal
         setMomoPaymentData({
           orderId,
-          amount: total,
+          amount: checkoutTotal,
           qrUrl:
             momoRes?.qr_code_url ||
             `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(
-              `2|99|0901234567|BOOKVERSE|reader@gmail.com|0|0|${total}|Thanh toan don hang ${orderId}|transfer_p2p`
+              `2|99|0901234567|BOOKVERSE|reader@gmail.com|0|0|${checkoutTotal}|Thanh toan don hang ${orderId}|transfer_p2p`
             )}`,
           payUrl: momoRes?.payment_url || "",
         });
@@ -174,23 +194,24 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
       if (selectedGateway === "VNPAY") {
         const vnpayUrl = await paymentService.createVnpayUrl({
           orderId,
-          amount: total,
+          amount: checkoutTotal,
           orderInfo: `Thanh toan don hang BookVerse #${String(orderId).slice(0, 8)}`,
         });
 
         if (vnpayUrl) {
-          clearCart();
+          removePurchasedItems(purchasedBookIds);
           window.location.href = vnpayUrl;
           return;
         } else {
           // VNPay sandbox fallback
-          window.location.href = `/payment-result?vnp_ResponseCode=00&vnp_TxnRef=${orderId}&vnp_Amount=${total * 100}`;
+          removePurchasedItems(purchasedBookIds);
+          window.location.href = `/payment-result?vnp_ResponseCode=00&vnp_TxnRef=${orderId}&vnp_Amount=${checkoutTotal * 100}`;
           return;
         }
       }
 
-      // 3. Với COD (Thanh toán khi nhận hàng)
-      clearCart();
+      // 3. Với COD (Thanh toán khi nhận hàng): Chỉ xóa các items đã mua, giữ lại các món unselected
+      removePurchasedItems(purchasedBookIds);
       setDone(true);
     } catch (err: any) {
       console.error("Place order error:", err);
@@ -202,13 +223,30 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
 
   const handleConfirmMomoPaid = () => {
     if (!momoPaymentData) return;
-    clearCart();
+    removePurchasedItems(purchasedBookIds);
     setShowMomoModal(false);
     // Chuyển hướng sang màn hình kết quả thanh toán MoMo thành công
     const resultUrl = `/payment-result?resultCode=0&orderId=${momoPaymentData.orderId}&partnerCode=MOMO&transId=MOMO_${Date.now()}&amount=${momoPaymentData.amount}&message=Giao+dich+thanh+cong`;
     window.history.pushState({}, "", resultUrl);
     window.location.href = resultUrl;
   };
+
+  if (checkoutItems.length === 0 && !done) {
+    return (
+      <div className="max-w-md mx-auto px-6 py-20 text-center animate-in fade-in">
+        <div className="w-16 h-16 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4 border border-amber-200">
+          <AlertCircle size={32} />
+        </div>
+        <h2 className="text-xl font-bold text-slate-800 mb-2">Chưa chọn sản phẩm thanh toán</h2>
+        <p className="text-slate-500 text-sm mb-6">
+          Bạn chưa tick chọn sản phẩm nào trong giỏ hàng để tiến hành thanh toán.
+        </p>
+        <Btn onClick={onBack} color="#1d4ed8" className="w-full cursor-pointer">
+          <ArrowLeft size={16} /> Quay lại giỏ hàng
+        </Btn>
+      </div>
+    );
+  }
 
   if (done) {
     return (
@@ -416,10 +454,10 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
         {/* Order Summary */}
         <Card className="p-5">
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
-            Tóm tắt sản phẩm ({cart.length} đầu sách)
+            Tóm tắt sản phẩm ({checkoutItems.length} đầu sách được chọn)
           </p>
           <div className="space-y-2 mb-3">
-            {cart.map((i) => (
+            {checkoutItems.map((i) => (
               <div
                 key={i.book.id}
                 className="flex justify-between items-center text-xs sm:text-sm text-slate-600"
@@ -436,15 +474,15 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
           <div className="border-t border-slate-100 pt-3 space-y-1.5 text-xs sm:text-sm text-slate-600">
             <div className="flex justify-between">
               <span>Tiền sách</span>
-              <span>{fmt(subtotal)}</span>
+              <span>{fmt(checkoutSubtotal)}</span>
             </div>
             <div className="flex justify-between">
               <span>Cước vận chuyển (GHN)</span>
-              <span>{fmt(shippingFee)}</span>
+              <span>{fmt(checkoutShippingFee)}</span>
             </div>
             <div className="border-t border-slate-100 pt-2 flex justify-between font-bold text-slate-900 text-sm sm:text-base">
               <span>Tổng số tiền thanh toán</span>
-              <span className="text-[#d82d8b] text-lg font-extrabold">{fmt(total)}</span>
+              <span className="text-[#d82d8b] text-lg font-extrabold">{fmt(checkoutTotal)}</span>
             </div>
           </div>
         </Card>
@@ -461,15 +499,15 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
           "Đang khởi tạo đơn hàng..."
         ) : selectedGateway === "MOMO" ? (
           <>
-            <Smartphone size={18} /> Mở mã QR MoMo & Thanh toán ngay ({fmt(total)})
+            <Smartphone size={18} /> Mở mã QR MoMo & Thanh toán ngay ({fmt(checkoutTotal)})
           </>
         ) : selectedGateway === "VNPAY" ? (
           <>
-            <CreditCard size={18} /> Chuyển sang Cổng VNPAY ({fmt(total)})
+            <CreditCard size={18} /> Chuyển sang Cổng VNPAY ({fmt(checkoutTotal)})
           </>
         ) : (
           <>
-            <Check size={18} /> Xác nhận đặt hàng COD ({fmt(total)})
+            <Check size={18} /> Xác nhận đặt hàng COD ({fmt(checkoutTotal)})
           </>
         )}
       </Btn>

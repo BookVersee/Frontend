@@ -659,8 +659,8 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
       {/* Sticky Book Preview Card if chatting about a specific book */}
       {currentBook && (
         <div className="p-3 bg-blue-50/90 border-b border-blue-100 flex items-center gap-3 shrink-0 animate-in fade-in">
-          <div className="w-11 h-14 shrink-0 rounded-lg overflow-hidden border border-blue-200/80 shadow-2xs">
-            <BookCover book={currentBook} size="sm" />
+          <div className="w-12 h-16 shrink-0 rounded-lg overflow-hidden border border-blue-200/80 shadow-2xs flex items-center justify-center">
+            <BookCover book={currentBook} size="xs" />
           </div>
           <div className="flex-1 min-w-0">
             <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wider block">
