@@ -16,6 +16,7 @@ import { Order, OrderStatus } from "../../types";
 import { orderService } from "../../services/orderService";
 import { signalRService } from "../../services/signalRService";
 import { useAuth } from "../../contexts/AuthContext";
+import { useCart } from "../../contexts/CartContext";
 import { orderStatusInfo } from "../../utils/status";
 import { fmt, formatOrderCode, formatOrderDate } from "../../utils/format";
 import { Card } from "../../components/common/Card";
@@ -34,6 +35,7 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({
   onOpenChat,
 }) => {
   const { user } = useAuth();
+  const { refreshCart } = useCart();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<"ALL" | OrderStatus>("ALL");
@@ -106,6 +108,7 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({
 
     try {
       await orderService.cancelOrder(orderToCancel.id, cancelReason);
+      await refreshCart(true);
 
       // Cập nhật state realtime ngay lập tức
       setOrders((prev) =>
@@ -120,7 +123,7 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({
       );
 
       setCancelToast(
-        `Đã hủy thành công đơn hàng #${formatOrderCode(orderToCancel.id)}.`
+        `Đã hủy thành công đơn hàng #${formatOrderCode(orderToCancel.id)}. Các sản phẩm đã được hoàn trả lại giỏ hàng của bạn!`
       );
       setTimeout(() => setCancelToast(null), 5000);
       setOrderToCancel(null);
