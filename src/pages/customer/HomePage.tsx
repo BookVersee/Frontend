@@ -1,15 +1,14 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Search, ShoppingCart, Star, BookOpen, Store } from "lucide-react";
+import { Search, Star, BookOpen, Store } from "lucide-react";
 import { Book, Category } from "../../types";
 import { bookService } from "../../services/bookService";
 import { BookCover } from "../../components/common/BookCover";
 import { fmt } from "../../utils/format";
-import { useCart } from "../../contexts/CartContext";
 import { FeaturedShops } from "../../components/customer/FeaturedShops";
 
 interface HomePageProps {
   onSelectBook: (book: Book) => void;
-  onGoToCart: () => void;
+  onGoToCart?: () => void;
   onSelectShop?: (shopId: number | string) => void;
 }
 
@@ -23,7 +22,6 @@ export const HomePage: React.FC<HomePageProps> = ({
   const [search, setSearch] = useState("");
   const [selectedCatId, setSelectedCatId] = useState(0);
   const [loading, setLoading] = useState(true);
-  const { cartCount } = useCart();
   const isLoadedRef = useRef(false);
 
   useEffect(() => {
@@ -33,30 +31,39 @@ export const HomePage: React.FC<HomePageProps> = ({
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [catsData, booksData] = await Promise.all([
-          bookService.getCategories(),
+        const [booksRes, catsRes] = await Promise.all([
           bookService.getBooks(),
+          bookService.getCategories(),
         ]);
-        setCategories(catsData);
-        setBooks(booksData);
+        setBooks(booksRes || []);
+        setCategories(catsRes || []);
+      } catch (err) {
+        console.error("Error fetching homepage data:", err);
       } finally {
         setLoading(false);
       }
     };
+
     fetchData();
   }, []);
 
   const filteredBooks = useMemo(() => {
-    return books.filter(
-      (b) =>
-        b.status !== "HIDDEN" &&
-        (selectedCatId === 0 || b.categoryId === selectedCatId) &&
-        (search === "" ||
-          b.title.toLowerCase().includes(search.toLowerCase()) ||
-          b.author.toLowerCase().includes(search.toLowerCase()) ||
-          b.shopName.toLowerCase().includes(search.toLowerCase()) ||
-          (b.isbn && b.isbn.includes(search)))
-    );
+    return books.filter((b) => {
+      const matchSearch =
+        !search ||
+        b.title.toLowerCase().includes(search.toLowerCase()) ||
+        b.author.toLowerCase().includes(search.toLowerCase()) ||
+        b.publisher?.toLowerCase().includes(search.toLowerCase()) ||
+        b.isbn?.toLowerCase().includes(search.toLowerCase()) ||
+        b.shopName?.toLowerCase().includes(search.toLowerCase());
+
+      const matchCat =
+        selectedCatId === 0 ||
+        b.categoryId === selectedCatId ||
+        (b.categoryIds && b.categoryIds.includes(selectedCatId));
+
+      return matchSearch && matchCat;
+    });
   }, [books, search, selectedCatId]);
 
   const handleSelectFeaturedShop = (shopName: string) => {
@@ -67,8 +74,8 @@ export const HomePage: React.FC<HomePageProps> = ({
     <div>
       {/* Search Header Bar */}
       <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm border-b border-slate-200 px-6 py-3">
-        <div className="max-w-5xl mx-auto flex items-center gap-3">
-          <div className="flex-1 relative">
+        <div className="max-w-5xl mx-auto">
+          <div className="relative">
             <Search
               size={16}
               className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
@@ -80,17 +87,6 @@ export const HomePage: React.FC<HomePageProps> = ({
               className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 bg-slate-50 transition-colors"
             />
           </div>
-          <button
-            onClick={onGoToCart}
-            className="relative p-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 transition-all shadow-sm flex items-center justify-center cursor-pointer"
-          >
-            <ShoppingCart size={18} />
-            {cartCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center font-bold">
-                {cartCount}
-              </span>
-            )}
-          </button>
         </div>
       </div>
 
