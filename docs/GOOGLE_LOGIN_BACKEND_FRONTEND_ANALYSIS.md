@@ -143,4 +143,4 @@ Nhằm đảm bảo tuân thủ nghiêm ngặt yêu cầu **"Không tự ý sử
    - Gửi payload chuẩn: `{ idToken: credential }`.
    - Lưu trữ cả `accessToken` và `refreshToken` (nếu cần duy trì phiên đăng nhập lâu dài).
 3. Cập nhật `src/components/auth/AuthModal.tsx`:
-   - Gắn nút đăng nhập Google thật sử dụng Google OAuth Pop-up/One-Tap với `VITE_GOOGLE_CLIENT_ID` đã cấu hình trong `.env.development`.
+   - Gắn nút đăng nhập Google thật sử dụng Google OAuth Pop-up/One-Tap với `VITE_GOOGLE_CLIENT_ID` đã cấu hình trong `.env`.

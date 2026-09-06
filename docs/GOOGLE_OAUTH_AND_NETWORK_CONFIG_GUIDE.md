@@ -88,7 +88,7 @@ Sau khi bấm **Save** trên Google Cloud Console, Google sẽ cấp một chu�
 ```
 
 ### 📌 Phía Frontend
-Điền đúng cùng mã Client ID trên vào file `.env.development`:
+Điền đúng cùng mã Client ID trên vào file `.env`:
 ```env
 VITE_GOOGLE_CLIENT_ID=YOUR_ACTUAL_CLIENT_ID.apps.googleusercontent.com
 ```
@@ -153,7 +153,7 @@ Trong file `BookManagement.Api/appsettings.json`, lưu ý cập nhật các URL 
 ## 6. CHECKLIST KIỂM TRA NHANH KHI TRIỂN KHAI (QUICK CHECKLIST)
 
 - [ ] Đã thêm `http://localhost:5173` và `http://localhost:3000` vào **Authorized JavaScript origins** trên Google Cloud Console.
-- [ ] Đã dán cùng một mã `ClientId` vào `appsettings.json` (Backend) và `.env.development` (Frontend).
+- [ ] Đã dán cùng một mã `ClientId` vào `appsettings.json` (Backend) và `.env` (Frontend).
 - [ ] Cấu hình CORS trong `Program.cs` cho phép mọi `localhost` origins và `.AllowCredentials()`.
 - [ ] Đã đổi `Momo:RedirectUrl` và `VnPay:ReturnUrl` trỏ về `http://localhost:5173/payment-result`.
 - [ ] Khởi động Backend (`dotnet run --project BookManagement.Api`) -> `http://localhost:5226`.

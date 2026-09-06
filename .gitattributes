@@ -1,0 +1,16 @@
+# Tự động chuẩn hóa line endings thành LF để đồng bộ giữa macOS và Windows
+* text=auto eol=lf
+
+# File batch script dành riêng cho Windows giữ CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Các tệp nhị phân giữ nguyên định dạng
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
