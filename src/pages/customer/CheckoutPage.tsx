@@ -42,6 +42,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
     selectedShippingFee,
     selectedTotal,
     removePurchasedItems,
+    refreshCart,
     subtotal: fullSubtotal,
     shippingFee: fullShippingFee,
     total: fullTotal,
@@ -101,7 +102,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
     const orderIdStr = String(momoPaymentData.orderId);
     signalRService.joinOrder(orderIdStr);
 
-    const unsubscribe = signalRService.onPaymentResult((payload) => {
+    const unsubscribe = signalRService.onPaymentResult(async (payload) => {
       if (String(payload.orderId) === orderIdStr) {
         if (payload.isSuccess) {
           setIsRealtimePaid(true);
@@ -110,7 +111,9 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
             handleConfirmMomoPaid();
           }, 1500);
         } else {
-          setError(payload.message || "Giao dịch thanh toán thất bại.");
+          setShowMomoModal(false);
+          setError(payload.message || "Giao dịch thanh toán MoMo thất bại hoặc bị hủy. Sản phẩm đã được hoàn trả lại giỏ hàng.");
+          await refreshCart(true);
         }
       }
     });
@@ -119,7 +122,19 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
       signalRService.leaveOrder(orderIdStr);
       unsubscribe();
     };
-  }, [showMomoModal, momoPaymentData?.orderId]);
+  }, [showMomoModal, momoPaymentData?.orderId, refreshCart]);
+
+  const handleCancelMomoModal = async () => {
+    if (momoPaymentData?.orderId) {
+      try {
+        await orderService.cancelOrder(momoPaymentData.orderId, "Khách hàng đổi phương thức thanh toán");
+      } catch (e) {
+        console.warn("Lỗi khi hủy đơn PENDING MoMo:", e);
+      }
+      await refreshCart(true);
+    }
+    setShowMomoModal(false);
+  };
 
   const formatTimer = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -169,7 +184,10 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
         });
 
         if (momoRes?.isRealGateway && momoRes.payment_url) {
-          removePurchasedItems(purchasedBookIds);
+          sessionStorage.setItem(
+            "bookverse_pending_checkout",
+            JSON.stringify({ orderId, purchasedBookIds, items: checkoutItems, gateway: "MOMO", timestamp: Date.now() })
+          );
           // Điều hướng sang cổng MoMo Sandbox trực tiếp nếu có URL hợp lệ từ Backend
           window.location.href = momoRes.payment_url;
           return;
@@ -199,12 +217,18 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
         });
 
         if (vnpayUrl) {
-          removePurchasedItems(purchasedBookIds);
+          sessionStorage.setItem(
+            "bookverse_pending_checkout",
+            JSON.stringify({ orderId, purchasedBookIds, items: checkoutItems, gateway: "VNPAY", timestamp: Date.now() })
+          );
           window.location.href = vnpayUrl;
           return;
         } else {
           // VNPay sandbox fallback
-          removePurchasedItems(purchasedBookIds);
+          sessionStorage.setItem(
+            "bookverse_pending_checkout",
+            JSON.stringify({ orderId, purchasedBookIds, items: checkoutItems, gateway: "VNPAY", timestamp: Date.now() })
+          );
           window.location.href = `/payment-result?vnp_ResponseCode=00&vnp_TxnRef=${orderId}&vnp_Amount=${checkoutTotal * 100}`;
           return;
         }
@@ -516,7 +540,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
       {showMomoModal && momoPaymentData && (
         <Modal
           isOpen={true}
-          onClose={() => setShowMomoModal(false)}
+          onClose={handleCancelMomoModal}
           title="Quét mã QR MoMo để thanh toán"
           maxWidth="max-w-md"
         >
@@ -612,7 +636,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => setShowMomoModal(false)}
+                    onClick={handleCancelMomoModal}
                     className="w-full py-2.5 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
                   >
                     Đóng / Chọn phương thức khác

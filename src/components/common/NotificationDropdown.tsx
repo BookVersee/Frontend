@@ -11,6 +11,8 @@ import {
   ExternalLink,
   ShieldCheck,
   ChevronRight,
+  CreditCard,
+  CheckCircle,
 } from "lucide-react";
 import { AppNotification } from "../../types";
 import { notificationService } from "../../services/notificationService";
@@ -21,6 +23,12 @@ import { chatService } from "../../services/chatService";
 interface NotificationDropdownProps {
   onNavigate?: (link: string) => void;
 }
+
+const isReturnApproved = (msg?: string) => {
+  if (!msg) return false;
+  const lower = msg.toLowerCase();
+  return lower.includes("chấp nhận") && (lower.includes("trả hàng") || lower.includes("hoàn tiền"));
+};
 
 export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ onNavigate }) => {
   const { user } = useAuth();
@@ -311,6 +319,13 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ onNa
                         {n.message}
                       </p>
 
+                      {isReturnApproved(n.message) && (
+                        <div className="mt-1.5 p-1.5 bg-emerald-50 rounded-lg border border-emerald-200/80 text-[10.5px] text-emerald-800 font-semibold flex items-center gap-1.5">
+                          <CreditCard size={12} className="shrink-0 text-emerald-600" />
+                          <span>Vui lòng liên hệ Shop để cung cấp STK nhận tiền hoàn.</span>
+                        </div>
+                      )}
+
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-[10px] text-slate-400 font-medium">
                           {n.createdAt}
@@ -395,11 +410,34 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ onNa
                   Mã tham chiếu: <span className="font-semibold text-slate-600">{selectedNotif.referenceId}</span>
                 </p>
               )}
+
+              {isReturnApproved(selectedNotif.message) && (
+                <div className="p-3.5 bg-emerald-50 rounded-2xl border border-emerald-200 text-xs space-y-1.5">
+                  <div className="flex items-center gap-1.5 font-bold text-emerald-900">
+                    <CheckCircle size={15} className="text-emerald-600 shrink-0" />
+                    <span>Yêu cầu hoàn tiền đã được chấp thuận!</span>
+                  </div>
+                  <p className="text-emerald-800 leading-relaxed">
+                    Bạn vui lòng <strong>chủ động nhắn tin cho Shop</strong> để gửi thông tin <strong>Số tài khoản ngân hàng (STK)</strong>, Tên ngân hàng và Họ tên chủ tài khoản để Shop chuyển khoản hoàn lại tiền.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Actions Footer */}
             <div className="flex items-center gap-2 pt-2">
-              {selectedNotif.type === "ORDER" && selectedNotif.referenceId && onNavigate && (
+              {isReturnApproved(selectedNotif.message) && onNavigate ? (
+                <button
+                  onClick={() => {
+                    const link = selectedNotif.link || (selectedNotif.referenceId ? `/orders?id=${selectedNotif.referenceId}` : "/orders");
+                    onNavigate(link);
+                    setSelectedNotif(null);
+                  }}
+                  className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+                >
+                  <CreditCard size={15} /> Xem đơn & gửi STK cho Shop
+                </button>
+              ) : selectedNotif.type === "ORDER" && selectedNotif.referenceId && onNavigate ? (
                 <button
                   onClick={() => {
                     onNavigate(`/orders?id=${selectedNotif.referenceId}`);
@@ -409,7 +447,7 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ onNa
                 >
                   <Package size={15} /> Xem chi tiết đơn hàng
                 </button>
-              )}
+              ) : null}
 
               {selectedNotif.type === "CHAT" && onNavigate && (
                 <button

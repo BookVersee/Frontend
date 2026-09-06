@@ -186,7 +186,8 @@ export const AdminDashboardPage: React.FC = () => {
   } | null>(null);
 
   // Dispute Resolution modal state
-  const [resolutionOrderId, setResolutionOrderId] = useState<number | null>(null);
+  const [resolutionOrderId, setResolutionOrderId] = useState<string | number | null>(null);
+  const [resolutionDisputeId, setResolutionDisputeId] = useState<string | number | null>(null);
   const [resolutionDecision, setResolutionDecision] = useState<ReturnStatus>("APPROVED");
   const [resolutionNote, setResolutionNote] = useState("");
 
@@ -238,6 +239,7 @@ export const AdminDashboardPage: React.FC = () => {
     try {
       const [
         ordersData,
+        disputesData,
         txData,
         usersData,
         pendingShopsData,
@@ -248,6 +250,7 @@ export const AdminDashboardPage: React.FC = () => {
         reportsData,
       ] = await Promise.all([
         adminService.getAllOrders(),
+        adminService.getDisputes(),
         adminService.getTransactions(),
         adminService.getUsers(),
         adminService.getPendingShops(),
@@ -258,7 +261,17 @@ export const AdminDashboardPage: React.FC = () => {
         adminService.getReportedResponses(),
       ]);
 
-      setOrders(ordersData);
+      const combinedOrders = [...ordersData];
+      for (const d of disputesData) {
+        const existing = combinedOrders.find((o) => String(o.id) === String(d.id));
+        if (existing) {
+          existing.returnRequest = d.returnRequest;
+        } else {
+          combinedOrders.push(d);
+        }
+      }
+
+      setOrders(combinedOrders);
       setTransactions(txData);
       setUsers(usersData);
       setPendingShops(pendingShopsData);
@@ -337,8 +350,13 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
-  const handleOpenResolutionModal = (orderId: number, decision: ReturnStatus) => {
+  const handleOpenResolutionModal = (
+    orderId: string | number,
+    decision: ReturnStatus,
+    disputeId?: string | number
+  ) => {
     setResolutionOrderId(orderId);
+    setResolutionDisputeId(disputeId || null);
     setResolutionDecision(decision);
     setResolutionNote(
       decision === "APPROVED"
@@ -348,12 +366,21 @@ export const AdminDashboardPage: React.FC = () => {
   };
 
   const handleConfirmResolution = async () => {
-    if (!resolutionOrderId) return;
-    await adminService.handleReturnRequest(resolutionOrderId, resolutionDecision, resolutionNote);
+    if (!resolutionOrderId && !resolutionDisputeId) return;
+    const targetId = resolutionDisputeId || resolutionOrderId;
+    try {
+      await adminService.handleReturnRequest(targetId!, resolutionDecision, resolutionNote);
+    } catch (err: any) {
+      alert(err.message || "Lỗi xử lý phán quyết");
+      return;
+    }
 
     setOrders((prev) =>
       prev.map((o) => {
-        if (o.id === resolutionOrderId && o.returnRequest) {
+        const isTarget =
+          String(o.id) === String(resolutionOrderId) ||
+          (o.returnRequest && String(o.returnRequest.id) === String(resolutionDisputeId));
+        if (isTarget && o.returnRequest) {
           return {
             ...o,
             orderStatus: resolutionDecision === "APPROVED" ? "RETURNED" : o.orderStatus,
@@ -370,6 +397,7 @@ export const AdminDashboardPage: React.FC = () => {
       })
     );
     setResolutionOrderId(null);
+    setResolutionDisputeId(null);
   };
 
   const handleOpenChatWithShop = (shopId: string | number, shopName: string) => {
@@ -1334,14 +1362,14 @@ export const AdminDashboardPage: React.FC = () => {
                                       <Btn
                                         size="sm"
                                         color="#047857"
-                                        onClick={() => handleOpenResolutionModal(order.id as any, "APPROVED")}
+                                        onClick={() => handleOpenResolutionModal(order.id, "APPROVED", rr.id)}
                                       >
                                         <Check size={14} /> Duyệt hoàn tiền
                                       </Btn>
                                       <Btn
                                         variant="danger"
                                         size="sm"
-                                        onClick={() => handleOpenResolutionModal(order.id as any, "REJECTED")}
+                                        onClick={() => handleOpenResolutionModal(order.id, "REJECTED", rr.id)}
                                       >
                                         <X size={14} /> Bác bỏ khiếu nại
                                       </Btn>
@@ -2502,11 +2530,14 @@ export const AdminDashboardPage: React.FC = () => {
       )}
 
       {/* 3. Modal Dispute Resolution */}
-      {resolutionOrderId && (
+      {(resolutionOrderId || resolutionDisputeId) && (
         <Modal
           isOpen={true}
-          onClose={() => setResolutionOrderId(null)}
-          title={`Phán quyết tranh chấp đơn hàng #${resolutionOrderId}`}
+          onClose={() => {
+            setResolutionOrderId(null);
+            setResolutionDisputeId(null);
+          }}
+          title={`Phán quyết tranh chấp đơn hàng #${resolutionOrderId || resolutionDisputeId}`}
           maxWidth="max-w-md"
         >
           <div className="space-y-4 text-xs">
@@ -2544,7 +2575,14 @@ export const AdminDashboardPage: React.FC = () => {
               >
                 <ShieldCheck size={16} /> Xác nhận phán quyết
               </Btn>
-              <Btn onClick={() => setResolutionOrderId(null)} variant="ghost" size="md">
+              <Btn
+                onClick={() => {
+                  setResolutionOrderId(null);
+                  setResolutionDisputeId(null);
+                }}
+                variant="ghost"
+                size="md"
+              >
                 Hủy
               </Btn>
             </div>

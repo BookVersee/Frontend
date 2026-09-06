@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   ArrowLeft,
   Check,
@@ -13,8 +13,17 @@ import {
   BellRing,
   MessageSquare,
   Info,
+  Upload,
+  Image as ImageIcon,
+  Loader2,
+  Gavel,
+  AlertCircle,
+  Trash2,
+  CheckCircle,
+  CreditCard,
+  Copy,
 } from "lucide-react";
-import { Order, DeliveryStatus } from "../../types";
+import { Order, DeliveryStatus, ReturnRequestReasonType, OrderItem } from "../../types";
 import { orderStatusInfo } from "../../utils/status";
 import { fmt, formatOrderCode, formatOrderDate } from "../../utils/format";
 import { Card } from "../../components/common/Card";
@@ -22,8 +31,10 @@ import { Badge } from "../../components/common/Badge";
 import { Btn } from "../../components/common/Btn";
 import { BookCover } from "../../components/common/BookCover";
 import { orderService } from "../../services/orderService";
+import { uploadService } from "../../services/uploadService";
 import { signalRService } from "../../services/signalRService";
 import { useAuth } from "../../contexts/AuthContext";
+import { useCart } from "../../contexts/CartContext";
 
 interface OrderDetailPageProps {
   order: Order;
@@ -37,12 +48,37 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
   onOpenChat,
 }) => {
   const { user } = useAuth();
+  const { refreshCart } = useCart();
   const [order, setOrder] = useState<Order>(initialOrder);
   const [showReview, setShowReview] = useState(false);
   const [rating, setRating] = useState(5);
   const [reviewText, setReviewText] = useState("");
   const [reviewed, setReviewed] = useState(!!order.feedback);
   const [realtimeUpdateBanner, setRealtimeUpdateBanner] = useState<string | null>(null);
+  const [copiedBankTemplate, setCopiedBankTemplate] = useState(false);
+
+  const handleCopyBankTemplate = () => {
+    const bookTitle = order?.returnRequest?.bookTitle || order?.items[0]?.book?.title || "Sản phẩm";
+    const amountStr = order?.returnRequest?.refundAmount ? fmt(order.returnRequest.refundAmount) : "";
+    const template = `[BookVerse - Cung cấp thông tin nhận hoàn tiền]
+Chào Shop, yêu cầu đổi trả cho cuốn "${bookTitle}" của đơn #${formatOrderCode(order?.id || "")} (${amountStr}) đã được chấp thuận.
+Mình xin gửi thông tin số tài khoản ngân hàng để nhận lại tiền hoàn:
+- Ngân hàng: [Điền tên ngân hàng, ví dụ: Vietcombank, MB Bank, Techcombank...]
+- Số tài khoản (STK): [Điền số tài khoản nhận tiền]
+- Chủ tài khoản: [Họ và tên chủ tài khoản]
+Cảm ơn Shop hỗ trợ!`;
+
+    navigator.clipboard.writeText(template);
+    setCopiedBankTemplate(true);
+    setTimeout(() => setCopiedBankTemplate(false), 3000);
+  };
+
+  const handleContactShop = () => {
+    const shopId = order.shopId || order.items[0]?.book?.shopId;
+    if (onOpenChat) {
+      onOpenChat(shopId);
+    }
+  };
 
   // Lắng nghe cập nhật trạng thái đơn hàng & Vận chuyển Realtime qua SignalR
   useEffect(() => {
@@ -84,9 +120,20 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
 
   // Return modal / inputs
   const [showReturnModal, setShowReturnModal] = useState(false);
+  const [selectedReturnItem, setSelectedReturnItem] = useState<OrderItem | null>(null);
   const [returnReason, setReturnReason] = useState("");
-  const [returnReasonType, setReturnReasonType] = useState("DAMAGED");
+  const [returnReasonType, setReturnReasonType] = useState<ReturnRequestReasonType>("DAMAGED");
   const [evidenceUrl, setEvidenceUrl] = useState("");
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isSubmittingReturn, setIsSubmittingReturn] = useState(false);
+  const [returnError, setReturnError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Escalate dispute modal
+  const [showEscalateModal, setShowEscalateModal] = useState(false);
+  const [escalateReason, setEscalateReason] = useState("");
+  const [isSubmittingEscalate, setIsSubmittingEscalate] = useState(false);
+  const [escalateError, setEscalateError] = useState<string | null>(null);
 
   // Cancel order modal
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -112,11 +159,14 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
     try {
       setCancelError(null);
       await orderService.cancelOrder(order.id, cancelReason);
+      await refreshCart(true);
       setOrder((prev) => ({
         ...prev,
         orderStatus: "CANCELLED",
         paymentStatus: prev.paymentStatus === "PAID" ? "REFUNDED" : "UNPAID",
       }));
+      setRealtimeUpdateBanner("Đơn hàng đã được hủy thành công. Các sản phẩm đã được hoàn trả lại giỏ hàng của bạn!");
+      setTimeout(() => setRealtimeUpdateBanner(null), 6000);
       setShowCancelModal(false);
     } catch (err: any) {
       setCancelError(err.message || "Không thể hủy đơn hàng này.");
@@ -145,22 +195,134 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
     setShowReview(false);
   };
 
+  const handleOpenReturnModal = (item?: OrderItem) => {
+    setReturnError(null);
+    setReturnReason("");
+    setReturnReasonType("DAMAGED");
+    setEvidenceUrl("");
+    if (item) {
+      setSelectedReturnItem(item);
+    } else {
+      const eligible = order.items.find((i) => !i.returnStatus || i.returnStatus === "NONE") || order.items[0];
+      setSelectedReturnItem(eligible || null);
+    }
+    setShowReturnModal(true);
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setIsUploadingImage(true);
+      setReturnError(null);
+      const res = await uploadService.uploadImage(file, "bookverse/returns");
+      setEvidenceUrl(res.url);
+    } catch (err: any) {
+      setReturnError(err.message || "Tải ảnh lên máy chủ thất bại.");
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
   const handleRequestReturn = async () => {
-    if (!returnReason) return;
-    await orderService.requestReturn(order.id, returnReason, returnReasonType, evidenceUrl);
-    setOrder((prev) => ({
-      ...prev,
-      returnRequest: {
-        reason: returnReason,
+    if (!returnReason.trim()) {
+      setReturnError("Vui lòng nêu rõ lý do hoặc mô tả cụ thể tình trạng lỗi của sách.");
+      return;
+    }
+    if (!selectedReturnItem?.orderDetailId) {
+      setReturnError("Không tìm thấy mã sản phẩm hợp lệ trong đơn hàng.");
+      return;
+    }
+
+    try {
+      setIsSubmittingReturn(true);
+      setReturnError(null);
+      const refundAmount = selectedReturnItem.unitPrice * selectedReturnItem.quantity;
+      await orderService.requestReturn({
+        orderId: order.id,
+        orderDetailId: selectedReturnItem.orderDetailId,
+        reason: returnReason.trim(),
         reasonType: returnReasonType,
-        status: "PENDING",
-        disputeStatus: "OPEN",
-        refundAmount: prev.totalAmount,
+        evidenceImage: evidenceUrl || undefined,
+        refundAmount,
+      });
+
+      const newReturnReq = {
+        orderId: order.id,
+        orderDetailId: selectedReturnItem.orderDetailId,
+        bookTitle: selectedReturnItem.book.title,
+        bookImageUrl: selectedReturnItem.book.imageUrl,
+        reason: returnReason.trim(),
+        reasonType: returnReasonType,
+        status: "PENDING" as const,
+        disputeStatus: "OPEN" as const,
+        refundAmount,
         createdAt: new Date().toISOString().split("T")[0],
-        evidenceImage: evidenceUrl || "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=400",
-      },
-    }));
-    setShowReturnModal(false);
+        evidenceImage: evidenceUrl || undefined,
+        imageUrl: evidenceUrl || undefined,
+      };
+
+      setOrder((prev) => ({
+        ...prev,
+        items: prev.items.map((it) =>
+          it.orderDetailId === selectedReturnItem.orderDetailId
+            ? { ...it, returnStatus: "REQUESTED", returnRequest: newReturnReq }
+            : it
+        ),
+        returnRequest: newReturnReq,
+      }));
+
+      setShowReturnModal(false);
+    } catch (err: any) {
+      setReturnError(err.message || "Không thể gửi yêu cầu đổi trả.");
+    } finally {
+      setIsSubmittingReturn(false);
+    }
+  };
+
+  const handleEscalateDispute = async () => {
+    if (!escalateReason.trim()) {
+      setEscalateError("Vui lòng nhập lý do bạn không đồng ý với phản hồi của Shop.");
+      return;
+    }
+    const returnReqId = order.returnRequest?.id;
+    if (!returnReqId) {
+      setEscalateError("Không tìm thấy mã yêu cầu trả hàng.");
+      return;
+    }
+
+    try {
+      setIsSubmittingEscalate(true);
+      setEscalateError(null);
+      await orderService.escalateDispute(returnReqId, escalateReason.trim());
+
+      setOrder((prev) => {
+        const updatedReturnReq = prev.returnRequest
+          ? {
+              ...prev.returnRequest,
+              status: "PENDING" as const,
+              disputeStatus: "OPEN" as const,
+              reason: (prev.returnRequest.reason || "") + ` | [KHIẾU NẠI ADMIN: ${escalateReason.trim()}]`,
+            }
+          : undefined;
+
+        return {
+          ...prev,
+          returnRequest: updatedReturnReq,
+          items: prev.items.map((it) =>
+            it.returnRequest?.id === returnReqId
+              ? { ...it, returnRequest: updatedReturnReq }
+              : it
+          ),
+        };
+      });
+
+      setShowEscalateModal(false);
+    } catch (err: any) {
+      setEscalateError(err.message || "Không thể gửi khiếu nại lên Ban Quản Trị.");
+    } finally {
+      setIsSubmittingEscalate(false);
+    }
   };
 
   return (
@@ -317,7 +479,7 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
         <div className="space-y-3">
           {order.items.map((item) => (
             <div
-              key={item.book.id}
+              key={item.orderDetailId || item.book.id}
               className="flex items-center gap-4 border-b border-slate-100 last:border-0 pb-3 last:pb-0"
             >
               <div className="w-16 h-22 shrink-0 rounded-xl overflow-hidden shadow-xs border border-slate-200/80 bg-slate-50 flex items-center justify-center">
@@ -331,6 +493,43 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
                   {item.book.author} • Số lượng:{" "}
                   <span className="font-bold text-slate-700">×{item.quantity}</span>
                 </p>
+
+                {/* Trạng thái đổi trả chi tiết theo từng cuốn sách */}
+                {item.returnStatus && item.returnStatus !== "NONE" ? (
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <span
+                      className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md ${
+                        item.returnStatus === "REFUNDED"
+                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                          : item.returnStatus === "PROCESSING"
+                          ? "bg-blue-50 text-blue-700 border border-blue-200"
+                          : item.returnStatus === "REJECTED"
+                          ? "bg-rose-50 text-rose-700 border border-rose-200"
+                          : "bg-amber-50 text-amber-700 border border-amber-200"
+                      }`}
+                    >
+                      <RefreshCw size={11} className={item.returnStatus === "REQUESTED" ? "animate-spin" : ""} />
+                      {item.returnStatus === "REFUNDED"
+                        ? "Đã hoàn tiền"
+                        : item.returnStatus === "PROCESSING"
+                        ? "Shop đã chấp nhận (Đang hoàn tiền)"
+                        : item.returnStatus === "REJECTED"
+                        ? "Shop từ chối trả hàng"
+                        : "Chờ Shop duyệt trả hàng"}
+                    </span>
+                  </div>
+                ) : (
+                  order.orderStatus === "DELIVERED" && (
+                    <div className="mt-1.5">
+                      <button
+                        onClick={() => handleOpenReturnModal(item)}
+                        className="text-[11px] text-red-600 hover:text-red-700 font-semibold underline cursor-pointer"
+                      >
+                        Đổi trả cuốn này
+                      </button>
+                    </div>
+                  )
+                )}
               </div>
               <span className="text-sm font-bold text-slate-800">
                 {fmt(item.unitPrice * item.quantity)}
@@ -490,10 +689,12 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
             <Badge
               label={
                 order.returnRequest.status === "APPROVED"
-                  ? "Admin đã duyệt hoàn tiền"
+                  ? "Đã duyệt hoàn tiền"
                   : order.returnRequest.status === "REJECTED"
-                  ? "Bị từ chối"
-                  : "Đang chờ Admin xử lý"
+                  ? "Shop từ chối"
+                  : order.returnRequest.reason?.includes("[KHIẾU NẠI ADMIN:")
+                  ? "Admin đang thụ lý"
+                  : "Chờ Shop xử lý"
               }
               color={
                 order.returnRequest.status === "APPROVED"
@@ -512,9 +713,138 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
             />
           </div>
 
-          <p className="text-xs sm:text-sm text-slate-700">
-            Lý do: <span className="font-semibold">"{order.returnRequest.reason}"</span>
-          </p>
+          <div className="text-xs sm:text-sm text-slate-700 space-y-1">
+            <p>
+              Lý do khiếu nại: <span className="font-semibold text-slate-900">"{order.returnRequest.reason}"</span>
+            </p>
+            <p className="text-xs text-slate-500">
+              Phân loại: <span className="font-medium text-slate-700">
+                {order.returnRequest.reasonType === "WRONG_ITEM"
+                  ? "Giao sai tựa sách"
+                  : order.returnRequest.reasonType === "DEFECTIVE"
+                  ? "Lỗi in ấn / thiếu trang"
+                  : "Sách bị hư hỏng / rách móp"}
+              </span>
+            </p>
+          </div>
+
+          {/* Evidence Image Thumbnail */}
+          {(order.returnRequest.evidenceImage || order.returnRequest.imageUrl) && (
+            <div className="pt-2">
+              <p className="text-[11px] font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
+                <ImageIcon size={13} /> Hình ảnh bằng chứng:
+              </p>
+              <a
+                href={order.returnRequest.evidenceImage || order.returnRequest.imageUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-block relative group rounded-xl overflow-hidden border border-slate-200 shadow-xs"
+              >
+                <img
+                  src={order.returnRequest.evidenceImage || order.returnRequest.imageUrl}
+                  alt="Evidence"
+                  className="w-24 h-24 object-cover group-hover:scale-105 transition-transform"
+                />
+                <span className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-[10px] font-semibold transition-opacity">
+                  Xem ảnh
+                </span>
+              </a>
+            </div>
+          )}
+
+          {/* Shop Approved Return Notice: Hướng dẫn khách hàng cung cấp STK */}
+          {order.returnRequest.status === "APPROVED" && (
+            <div className="p-4.5 bg-gradient-to-br from-emerald-50 via-teal-50/50 to-emerald-50 rounded-2xl border-2 border-emerald-300/90 shadow-xs space-y-3.5">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <CheckCircle size={20} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-sm font-extrabold text-emerald-950">
+                    Cửa hàng đã chấp thuận yêu cầu đổi trả & hoàn tiền!
+                  </h4>
+                  <p className="text-xs text-emerald-800 mt-0.5 leading-relaxed">
+                    Số tiền hoàn dự kiến: <strong className="text-emerald-950 font-black text-sm">{fmt(order.returnRequest.refundAmount)}</strong>.
+                  </p>
+                </div>
+              </div>
+
+              {/* Hướng dẫn từng bước */}
+              <div className="bg-white/95 rounded-xl p-3.5 border border-emerald-200/80 text-xs space-y-2">
+                <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                  <CreditCard size={15} className="text-emerald-600" />
+                  <span>Hướng dẫn nhận lại tiền hoàn từ Shop:</span>
+                </div>
+                <ol className="list-decimal list-inside space-y-1.5 text-slate-600 pl-1 leading-relaxed">
+                  <li>
+                    Bạn hãy <strong>chủ động nhắn tin cho Cửa hàng ({order.shopName || "Shop"})</strong> qua hệ thống Chat BookVerse.
+                  </li>
+                  <li>
+                    Gửi thông tin tài khoản ngân hàng của bạn gồm: <strong>Tên ngân hàng, Số tài khoản (STK)</strong> và <strong>Họ tên chủ tài khoản</strong>.
+                  </li>
+                  <li>
+                    Shop sẽ tiến hành chuyển khoản hoàn tiền trực tiếp cho bạn sau khi nhận được thông tin.
+                  </li>
+                </ol>
+              </div>
+
+              {/* Nút Copy mẫu STK & Nút Nhắn tin cho Shop */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleCopyBankTemplate}
+                  className="flex-1 py-2.5 px-4 rounded-xl bg-white hover:bg-slate-50 border border-emerald-300 text-emerald-900 font-bold text-xs flex items-center justify-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+                >
+                  <Copy size={14} className="text-emerald-700" />
+                  {copiedBankTemplate ? "✓ Đã sao chép mẫu tin nhắn!" : "Sao chép mẫu thông tin STK"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleContactShop}
+                  className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                >
+                  <MessageSquare size={14} /> Nhắn tin ngay cho Shop
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Shop Rejection Notice & Escalation to Admin */}
+          {order.returnRequest.status === "REJECTED" && (
+            <div className="p-3.5 bg-rose-50/80 rounded-xl border border-rose-200 space-y-2.5">
+              <div className="flex items-start gap-2 text-rose-800">
+                <AlertCircle size={16} className="shrink-0 mt-0.5 text-rose-600" />
+                <div className="text-xs">
+                  <p className="font-bold">Cửa hàng đã từ chối yêu cầu đổi trả này.</p>
+                  <p className="text-rose-700 mt-0.5 leading-relaxed">
+                    Nếu bạn nhận thấy phán quyết của Shop chưa thỏa đáng hoặc bạn có đầy đủ bằng chứng đối soát, bạn có quyền khiếu nại lên Ban Quản Trị để Admin can thiệp xử lý.
+                  </p>
+                </div>
+              </div>
+              <div className="text-right">
+                <Btn
+                  onClick={() => {
+                    setEscalateError(null);
+                    setEscalateReason("");
+                    setShowEscalateModal(true);
+                  }}
+                  size="sm"
+                  color="#b45309"
+                >
+                  <Gavel size={14} /> Khiếu nại lên Ban Quản Trị
+                </Btn>
+              </div>
+            </div>
+          )}
+
+          {/* Admin Dispute Pending Notice */}
+          {order.returnRequest.status === "PENDING" && order.returnRequest.reason?.includes("[KHIẾU NẠI ADMIN:") && (
+            <div className="p-3 bg-blue-50 rounded-xl border border-blue-200 flex items-center gap-2 text-xs text-blue-800">
+              <ShieldCheck size={16} className="shrink-0 text-blue-600" />
+              <span>Vụ việc tranh chấp đang được <strong>Ban Quản Trị (Admin)</strong> tiếp nhận và phân xử. Vui lòng chờ phản hồi.</span>
+            </div>
+          )}
 
           {/* Admin Resolution Note */}
           {order.returnRequest.adminResolutionNote && (
@@ -539,7 +869,7 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
         order.orderStatus === "DELIVERED" && (
           <div className="text-right">
             <button
-              onClick={() => setShowReturnModal(true)}
+              onClick={() => handleOpenReturnModal()}
               className="text-xs text-slate-500 hover:text-red-600 font-medium underline cursor-pointer"
             >
               Yêu cầu hoàn hàng / đổi trả sách nếu có lỗi
@@ -551,54 +881,172 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
       {/* Return Request Modal */}
       {showReturnModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <Card className="max-w-md w-full p-6 animate-in zoom-in-95">
-            <h3 className="font-bold text-slate-800 text-base mb-2">
+          <Card className="max-w-lg w-full p-6 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+            <h3 className="font-bold text-slate-800 text-base mb-1">
               Yêu cầu hoàn tiền & Đổi trả
             </h3>
             <p className="text-xs text-slate-500 mb-4">
-              Vui lòng nêu rõ lý do và cung cấp link hình ảnh lỗi để Admin đối soát với shop.
+              Vui lòng chọn sản phẩm cần hoàn trả, nêu rõ lý do và cung cấp ảnh chụp bằng chứng lỗi để đối soát.
             </p>
 
+            {returnError && (
+              <div className="p-3 mb-4 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium flex items-center gap-2">
+                <AlertCircle size={15} className="shrink-0" />
+                <span>{returnError}</span>
+              </div>
+            )}
+
             <div className="space-y-4 mb-5">
+              {/* Product selection */}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">
-                  Loại lý do
+                  Chọn sản phẩm cần đổi trả
+                </label>
+                {order.items.length > 1 ? (
+                  <select
+                    value={selectedReturnItem?.orderDetailId || ""}
+                    onChange={(e) => {
+                      const it = order.items.find((i) => i.orderDetailId === e.target.value);
+                      if (it) setSelectedReturnItem(it);
+                    }}
+                    className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 focus:outline-none"
+                  >
+                    {order.items.map((item) => (
+                      <option
+                        key={item.orderDetailId || item.book.id}
+                        value={item.orderDetailId || ""}
+                        disabled={!!item.returnStatus && item.returnStatus !== "NONE"}
+                      >
+                        {item.book.title} (×{item.quantity}) - {fmt(item.unitPrice * item.quantity)}
+                        {item.returnStatus && item.returnStatus !== "NONE" ? " [Đã gửi yêu cầu]" : ""}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  selectedReturnItem && (
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center gap-3">
+                      <div className="w-10 h-14 shrink-0 rounded overflow-hidden border border-slate-200 bg-white">
+                        <BookCover book={selectedReturnItem.book} size="xs" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-slate-800 line-clamp-1">
+                          {selectedReturnItem.book.title}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          Số lượng: {selectedReturnItem.quantity} • Giá: {fmt(selectedReturnItem.unitPrice)}
+                        </p>
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+
+              {/* Estimated Refund Amount */}
+              {selectedReturnItem && (
+                <div className="p-3 bg-blue-50/70 rounded-xl border border-blue-100 flex items-center justify-between text-xs">
+                  <span className="text-blue-900 font-medium">Số tiền hoàn dự kiến:</span>
+                  <span className="text-blue-700 font-bold text-sm">
+                    {fmt(selectedReturnItem.unitPrice * selectedReturnItem.quantity)}
+                  </span>
+                </div>
+              )}
+
+              {/* Reason Type */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  Loại lý do đổi trả
                 </label>
                 <select
                   value={returnReasonType}
-                  onChange={(e) => setReturnReasonType(e.target.value)}
+                  onChange={(e) => setReturnReasonType(e.target.value as ReturnRequestReasonType)}
                   className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 focus:outline-none"
                 >
-                  <option value="DAMAGED">Sách bị rách, gãy bìa, in lỗi</option>
-                  <option value="WRONG_ITEM">Giao sai tựa sách</option>
-                  <option value="MISSING_PAGES">Thiếu trang, lỗi kiểm duyệt</option>
-                  <option value="OTHER">Lý do khác</option>
+                  <option value="DAMAGED">Sách bị rách, gãy bìa, ướt hoặc móp méo</option>
+                  <option value="WRONG_ITEM">Giao sai tựa sách / sản phẩm khác</option>
+                  <option value="DEFECTIVE">Lỗi in ấn, thiếu trang từ nhà xuất bản</option>
                 </select>
               </div>
 
+              {/* Detailed Reason */}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">
-                  Mô tả cụ thể
+                  Mô tả cụ thể tình trạng lỗi <span className="text-rose-500">*</span>
                 </label>
                 <textarea
                   value={returnReason}
                   onChange={(e) => setReturnReason(e.target.value)}
                   rows={3}
-                  placeholder="Mô tả cụ thể tình trạng lỗi..."
+                  placeholder="Nêu rõ trang bị rách, tình trạng móp méo hoặc tựa sách bị giao nhầm..."
                   className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl px-3 py-2 focus:outline-none bg-slate-50 resize-none"
                 />
               </div>
 
+              {/* Photo Evidence Upload */}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">
-                  Link ảnh chụp bằng chứng (Tùy chọn)
+                  Ảnh chụp bằng chứng lỗi
                 </label>
                 <input
-                  value={evidenceUrl}
-                  onChange={(e) => setEvidenceUrl(e.target.value)}
-                  placeholder="https://..."
-                  className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl px-3 py-2 focus:outline-none bg-slate-50"
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/jpeg,image/png,image/webp,image/jpg"
+                  onChange={handleImageUpload}
+                  className="hidden"
                 />
+
+                {evidenceUrl ? (
+                  <div className="relative rounded-xl border border-slate-200 p-2.5 bg-slate-50 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <img
+                        src={evidenceUrl}
+                        alt="Evidence preview"
+                        className="w-14 h-14 rounded-lg object-cover border border-slate-200 shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-slate-800 line-clamp-1">
+                          Ảnh chụp bằng chứng
+                        </p>
+                        <span className="text-[10px] text-emerald-600 font-medium">
+                          Đã tải lên Cloudinary thành công
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEvidenceUrl("")}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                      title="Xóa ảnh"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="border-2 border-dashed border-slate-200 hover:border-blue-400 hover:bg-blue-50/20 rounded-xl p-4 text-center cursor-pointer transition-colors"
+                  >
+                    {isUploadingImage ? (
+                      <div className="flex flex-col items-center justify-center gap-2 py-2">
+                        <Loader2 size={24} className="text-blue-600 animate-spin" />
+                        <span className="text-xs font-medium text-slate-600">
+                          Đang tải ảnh lên Cloudinary...
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center gap-1.5">
+                        <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500">
+                          <Upload size={16} />
+                        </div>
+                        <p className="text-xs font-semibold text-slate-700">
+                          Bấm để tải ảnh chụp từ thiết bị
+                        </p>
+                        <p className="text-[10px] text-slate-400">
+                          Hỗ trợ định dạng JPG, PNG, WEBP (Tối đa 10MB)
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -608,13 +1056,87 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
                 color="#dc2626"
                 size="md"
                 className="flex-1"
+                disabled={isSubmittingReturn || isUploadingImage}
               >
-                <ShieldCheck size={16} /> Gửi yêu cầu hoàn hàng
+                {isSubmittingReturn ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" /> Đang gửi yêu cầu...
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck size={16} /> Gửi yêu cầu hoàn hàng
+                  </>
+                )}
               </Btn>
               <Btn
                 onClick={() => setShowReturnModal(false)}
                 variant="ghost"
                 size="md"
+                disabled={isSubmittingReturn}
+              >
+                Hủy
+              </Btn>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Escalate Dispute Modal */}
+      {showEscalateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+          <Card className="max-w-md w-full p-6 animate-in zoom-in-95">
+            <div className="flex items-center gap-2 mb-2 text-amber-700">
+              <Gavel size={20} />
+              <h3 className="font-bold text-slate-800 text-base">
+                Khiếu nại lên Ban Quản Trị
+              </h3>
+            </div>
+            <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+              Vụ việc sẽ được chuyển trực tiếp tới Admin để đối soát với Shop. Ban Quản Trị sẽ bảo vệ quyền lợi chính đáng của bạn nếu sản phẩm thực sự bị lỗi.
+            </p>
+
+            {escalateError && (
+              <div className="p-3 mb-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium">
+                {escalateError}
+              </div>
+            )}
+
+            <div className="mb-5">
+              <label className="block text-xs font-semibold text-slate-600 mb-1">
+                Lý do khiếu nại đối soát:
+              </label>
+              <textarea
+                value={escalateReason}
+                onChange={(e) => setEscalateReason(e.target.value)}
+                rows={4}
+                placeholder="Nêu rõ căn cứ, bằng chứng bóc hàng hoặc lý do vì sao phản hồi của Shop chưa thỏa đáng..."
+                className="w-full text-xs sm:text-sm border border-slate-200 rounded-xl px-3 py-2 focus:outline-none bg-slate-50 resize-none"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <Btn
+                onClick={handleEscalateDispute}
+                color="#b45309"
+                size="md"
+                className="flex-1"
+                disabled={isSubmittingEscalate}
+              >
+                {isSubmittingEscalate ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" /> Đang gửi khiếu nại...
+                  </>
+                ) : (
+                  <>
+                    <Gavel size={16} /> Gửi khiếu nại Admin
+                  </>
+                )}
+              </Btn>
+              <Btn
+                onClick={() => setShowEscalateModal(false)}
+                variant="ghost"
+                size="md"
+                disabled={isSubmittingEscalate}
               >
                 Hủy
               </Btn>

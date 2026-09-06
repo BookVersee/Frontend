@@ -14,7 +14,7 @@ interface CartContextType {
   updateQuantity: (bookId: string | number, quantity: number) => Promise<void>;
   removeFromCart: (bookId: string | number) => Promise<void>;
   clearCart: () => Promise<void>;
-  refreshCart: () => Promise<void>;
+  refreshCart: (autoSelect?: boolean | string[]) => Promise<void>;
   setCart: React.Dispatch<React.SetStateAction<CartItem[]>>;
 
   // Selection state
@@ -116,7 +116,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   // Hàm tải lại giỏ hàng từ máy chủ Backend
-  const refreshCart = useCallback(async () => {
+  const refreshCart = useCallback(async (autoSelect?: boolean | string[]) => {
     const token = getStoredToken();
     if (!token) return;
 
@@ -125,6 +125,16 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCart((prev) => {
         const updated = syncWithBackendCart(backendCart, prev);
         setStoredCart(updated);
+        if (Array.isArray(autoSelect)) {
+          const targetIds = autoSelect.map(String);
+          setSelectedBookIds(
+            updated
+              .map((i) => String(i?.book?.id))
+              .filter((id) => targetIds.includes(id))
+          );
+        } else if (autoSelect === true) {
+          setSelectedBookIds(updated.map((i) => String(i?.book?.id)).filter(Boolean));
+        }
         return updated;
       });
     }

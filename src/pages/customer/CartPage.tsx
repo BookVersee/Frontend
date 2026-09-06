@@ -1,10 +1,25 @@
-import React from "react";
-import { ArrowLeft, ShoppingCart, Plus, Minus, Trash2, CreditCard, Check, CheckSquare, Square } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import {
+  ArrowLeft,
+  ShoppingCart,
+  Plus,
+  Minus,
+  Trash2,
+  CreditCard,
+  Check,
+  CheckSquare,
+  Square,
+  RotateCcw,
+  Loader2,
+  CheckCircle2,
+} from "lucide-react";
 import { useCart } from "../../contexts/CartContext";
 import { BookCover } from "../../components/common/BookCover";
 import { Card } from "../../components/common/Card";
 import { Btn } from "../../components/common/Btn";
 import { fmt } from "../../utils/format";
+import { orderService } from "../../services/orderService";
+import { cartService } from "../../services/cartService";
 
 interface CartPageProps {
   onBack: () => void;
@@ -27,7 +42,116 @@ export const CartPage: React.FC<CartPageProps> = ({ onBack, onCheckout }) => {
     selectedShippingFee,
     selectedTotal,
     removePurchasedItems,
+    refreshCart,
   } = useCart();
+
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [restoredNotice, setRestoredNotice] = useState<string | null>(null);
+
+  // Tự động kiểm tra và khôi phục nếu khách vừa rời MoMo mà đơn hàng chưa hoàn tất
+  useEffect(() => {
+    const autoRestoreAbandoned = async () => {
+      if (cart.length > 0) return;
+
+      let pendingOrderId = "";
+      let pendingItems: any[] = [];
+      try {
+        const pendingStr = sessionStorage.getItem("bookverse_pending_checkout");
+        if (pendingStr) {
+          const pending = JSON.parse(pendingStr);
+          if (pending?.orderId) pendingOrderId = String(pending.orderId);
+          if (Array.isArray(pending?.items)) pendingItems = pending.items;
+        }
+      } catch (e) {}
+
+      if (!pendingOrderId) {
+        try {
+          // Kiểm tra xem user có đơn PENDING phương thức ONLINE nào không
+          const orders = await orderService.getOrders();
+          const pendingOrder = orders.find(
+            (o) => o.orderStatus === "PENDING" && o.paymentMethod === "ONLINE"
+          );
+          if (pendingOrder) {
+            pendingOrderId = String(pendingOrder.id);
+          }
+        } catch (e) {}
+      }
+
+      if (pendingOrderId) {
+        setIsRestoring(true);
+        try {
+          // Hủy đơn PENDING để Backend tự động hoàn trả cbd.IsDeleted = false
+          await orderService.cancelOrder(pendingOrderId, "Khách hàng quay lại giỏ hàng từ thanh toán online");
+          await refreshCart(true);
+
+          // Fallback snapshot nếu cần
+          const c = await cartService.getCart();
+          const hasItems = c?.shopGroups?.some((g: any) => (g.items?.length || 0) > 0);
+          if (!hasItems && pendingItems.length > 0) {
+            for (const it of pendingItems) {
+              if (it?.book?.id) {
+                try {
+                  await cartService.addToCart(it.book.id, it.quantity || 1);
+                } catch (addErr) {
+                  console.warn("addToCart fallback error:", addErr);
+                }
+              }
+            }
+            await refreshCart(true);
+          }
+
+          setRestoredNotice("Đã tự động khôi phục các sản phẩm từ giao dịch chưa hoàn tất vào giỏ hàng của bạn!");
+          setTimeout(() => setRestoredNotice(null), 6000);
+          sessionStorage.removeItem("bookverse_pending_checkout");
+        } catch (err) {
+          console.warn("Auto restore error:", err);
+        } finally {
+          setIsRestoring(false);
+        }
+      }
+    };
+
+    autoRestoreAbandoned();
+  }, [cart.length, refreshCart]);
+
+  const handleManualCheckAndRestore = async () => {
+    setIsRestoring(true);
+    try {
+      let pendingOrderId = "";
+      try {
+        const pendingStr = sessionStorage.getItem("bookverse_pending_checkout");
+        if (pendingStr) {
+          const pending = JSON.parse(pendingStr);
+          if (pending?.orderId) pendingOrderId = String(pending.orderId);
+        }
+      } catch (e) {}
+
+      if (!pendingOrderId) {
+        const orders = await orderService.getOrders();
+        const pendingOrder = orders.find((o) => o.orderStatus === "PENDING");
+        if (pendingOrder) {
+          pendingOrderId = String(pendingOrder.id);
+        }
+      }
+
+      if (pendingOrderId) {
+        await orderService.cancelOrder(pendingOrderId, "Khách hàng khôi phục giỏ hàng");
+        await refreshCart(true);
+        setRestoredNotice("Đã khôi phục thành công các sản phẩm vào giỏ hàng!");
+        setTimeout(() => setRestoredNotice(null), 5000);
+        sessionStorage.removeItem("bookverse_pending_checkout");
+      } else {
+        await refreshCart(true);
+        setRestoredNotice("Đã làm mới dữ liệu giỏ hàng từ máy chủ.");
+        setTimeout(() => setRestoredNotice(null), 3000);
+      }
+    } catch (err: any) {
+      console.warn("handleManualCheckAndRestore error:", err);
+      await refreshCart(true);
+    } finally {
+      setIsRestoring(false);
+    }
+  };
 
   const handleRemoveSelected = () => {
     if (selectedBookIds.length === 0) return;
@@ -38,6 +162,14 @@ export const CartPage: React.FC<CartPageProps> = ({ onBack, onCheckout }) => {
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+      {/* Toast thông báo khôi phục thành công */}
+      {restoredNotice && (
+        <div className="mb-4 p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+          <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+          <span>{restoredNotice}</span>
+        </div>
+      )}
+
       <button
         onClick={onBack}
         className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 mb-6 transition-colors font-medium cursor-pointer"
@@ -60,19 +192,39 @@ export const CartPage: React.FC<CartPageProps> = ({ onBack, onCheckout }) => {
       </div>
 
       {cart.length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
+        <div className="text-center py-16 bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
           <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-4 text-slate-400">
             <ShoppingCart size={32} />
           </div>
           <h2 className="text-lg font-bold text-slate-700 mb-1">
             Giỏ hàng đang trống
           </h2>
-          <p className="text-xs text-slate-400 mb-6">
-            Hãy khám phá thêm nhiều tựa sách hấp dẫn tại trang chủ.
+          <p className="text-xs text-slate-400 mb-6 max-w-sm mx-auto leading-relaxed">
+            Nếu bạn vừa thanh toán qua MoMo nhưng chưa hoàn tất hoặc gặp sự cố, bạn có thể bấm nút khôi phục bên dưới để lấy lại các cuốn sách của mình.
           </p>
-          <Btn onClick={onBack} color="#1d4ed8">
-            Khám phá sách ngay
-          </Btn>
+
+          {isRestoring && (
+            <div className="inline-flex items-center gap-2 text-xs font-semibold text-blue-700 bg-blue-50 py-2 px-4 rounded-xl mb-4 animate-pulse">
+              <Loader2 size={14} className="animate-spin text-blue-600" />
+              <span>Đang kiểm tra và phục hồi sách từ giao dịch trước...</span>
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={handleManualCheckAndRestore}
+              disabled={isRestoring}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-pink-200 bg-pink-50/80 text-pink-700 hover:bg-pink-100 text-xs font-bold transition-all cursor-pointer shadow-2xs"
+            >
+              <RotateCcw size={14} className={isRestoring ? "animate-spin" : ""} />
+              <span>Khôi phục sách từ đơn MoMo chưa thanh toán</span>
+            </button>
+
+            <Btn onClick={onBack} color="#1d4ed8">
+              Khám phá sách ngay
+            </Btn>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

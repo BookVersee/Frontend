@@ -73,6 +73,10 @@ const AppContent: React.FC = () => {
               window.history.replaceState({}, document.title, "/");
               setCustomerPage("home");
             }}
+            onGoToCart={() => {
+              window.history.replaceState({}, document.title, "/");
+              setCustomerPage("cart");
+            }}
           />
         )}
 
