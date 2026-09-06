@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { User, Role } from "../types";
 import { authService, RegisterData } from "../services/authService";
-import { getStoredUser, getStoredToken } from "../utils/storage";
+import { getStoredUser, getStoredToken, getStoredRefreshToken } from "../utils/storage";
 
 interface AuthContextType {
   user: User | null;
@@ -50,6 +50,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const stored = getStoredUser<User>();
     return normalizeRole(stored?.role);
   });
+
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      setUser(null);
+      setToken(null);
+      setRole("customer");
+    };
+    window.addEventListener("auth:session-expired", handleSessionExpired);
+    return () => {
+      window.removeEventListener("auth:session-expired", handleSessionExpired);
+    };
+  }, []);
 
   useEffect(() => {
     if (token && !user) {
@@ -111,7 +123,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     try {
-      await authService.logout();
+      const currentRefreshToken = getStoredRefreshToken();
+      await authService.logout(currentRefreshToken || undefined);
     } finally {
       setUser(null);
       setToken(null);

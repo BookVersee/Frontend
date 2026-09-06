@@ -32,6 +32,7 @@ import {
   Sparkles,
   Filter,
   ArrowRight,
+  ArrowLeft,
   CheckCheck,
   Ticket,
   Share2,
@@ -43,9 +44,12 @@ import {
   GripVertical,
   Flag,
   ThumbsUp,
+  Scale,
+  RotateCcw,
 } from "lucide-react";
 import { Order, Book, Category, OrderStatus, OrderFeedback, ChatMessage, BookImageDto, Shop } from "../../types";
 import { shopService } from "../../services/shopService";
+import { shippingService } from "../../services/shippingService";
 import { bookService } from "../../services/bookService";
 import {
   chatService,
@@ -81,6 +85,16 @@ export const ShopDashboardPage: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [feedbacks, setFeedbacks] = useState<{ orderId: string | number; feedback: OrderFeedback }[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Search & Filter in shop orders
+  const [orderSearch, setOrderSearch] = useState("");
+  const [orderStatusFilter, setOrderStatusFilter] = useState<
+    "ALL" | "PENDING" | "PROCESSING" | "SHIPPING" | "DELIVERED" | "CANCELLED"
+  >("ALL");
+  const [orderPaymentFilter, setOrderPaymentFilter] = useState<"ALL" | "COD" | "ONLINE">("ALL");
+  const [orderSortBy, setOrderSortBy] = useState<
+    "NEWEST" | "OLDEST" | "AMOUNT_DESC" | "AMOUNT_ASC"
+  >("NEWEST");
 
   // Search & Filter in shop products
   const [productSearch, setProductSearch] = useState("");
@@ -707,11 +721,161 @@ export const ShopDashboardPage: React.FC = () => {
   const totalUnreadChats =
     chatThreads.reduce((s, t) => s + (t.unreadCount || 0), 0) + realtimeNewChatCount;
 
-  const handleUpdateStatus = async (orderId: number, nextStatus: OrderStatus) => {
-    await shopService.updateOrderStatus(orderId, nextStatus);
-    setOrders((prev) =>
-      prev.map((o) => (o.id === orderId ? { ...o, orderStatus: nextStatus } : o))
-    );
+  // GHN Handover Modal State
+  const [showGhnModal, setShowGhnModal] = useState(false);
+  const [selectedOrderForGhn, setSelectedOrderForGhn] = useState<Order | null>(null);
+  const [ghnWeight, setGhnWeight] = useState<number>(500);
+  const [ghnNote, setGhnNote] = useState<string>("");
+  const [ghnRequiredNote, setGhnRequiredNote] = useState<string>("CHOXEMHANGKHONGTHU");
+  const [isGhnSubmitting, setIsGhnSubmitting] = useState(false);
+  const [ghnError, setGhnError] = useState<string | null>(null);
+  const [ghnSuccessResult, setGhnSuccessResult] = useState<{ trackingCode?: string; message?: string } | null>(null);
+
+  // Reject Order Modal State
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [selectedOrderForReject, setSelectedOrderForReject] = useState<Order | null>(null);
+  const [rejectReason, setRejectReason] = useState<string>("Hết hàng trong kho");
+  const [rejectCustomNote, setRejectCustomNote] = useState<string>("");
+  const [isRejectSubmitting, setIsRejectSubmitting] = useState(false);
+  const [rejectError, setRejectError] = useState<string | null>(null);
+
+  const handleUpdateStatus = async (orderId: string | number, nextStatus: OrderStatus) => {
+    try {
+      await shopService.updateOrderStatus(orderId, nextStatus);
+      setOrders((prev) =>
+        prev.map((o) => (o.id === orderId ? { ...o, orderStatus: nextStatus } : o))
+      );
+    } catch (err: any) {
+      console.error("Lỗi cập nhật trạng thái đơn hàng:", err);
+      const msg = err?.response?.data?.message || err?.message || "Không thể cập nhật trạng thái đơn hàng";
+      alert(msg);
+    }
+  };
+
+  const handleOpenGhnModal = (order: Order) => {
+    setSelectedOrderForGhn(order);
+    setGhnWeight(500);
+    setGhnNote(order.note || "Giao hàng cẩn thận, bọc kỹ chống sốc");
+    setGhnRequiredNote("CHOXEMHANGKHONGTHU");
+    setGhnError(null);
+    setGhnSuccessResult(null);
+    setShowGhnModal(true);
+  };
+
+  const handleConfirmGhnHandover = async () => {
+    if (!selectedOrderForGhn) return;
+    setIsGhnSubmitting(true);
+    setGhnError(null);
+
+    try {
+      // 1. Sync weight & note with Shop UpdateOrderStatus endpoint if needed
+      if (ghnWeight > 0 || ghnNote) {
+        try {
+          await shopService.updateOrderStatus(
+            selectedOrderForGhn.id,
+            "SHIPPING",
+            ghnNote,
+            ghnWeight
+          );
+        } catch (syncErr: any) {
+          console.warn("Order details update before GHN dispatch:", syncErr);
+        }
+      }
+
+      // 2. Call GHN integration endpoint
+      const result = await shippingService.createGhnOrder(
+        selectedOrderForGhn.id,
+        ghnRequiredNote
+      );
+
+      // 3. Update local orders state
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === selectedOrderForGhn.id
+            ? {
+                ...o,
+                orderStatus: "SHIPPING",
+                note: ghnNote || o.note,
+                tracking: result.trackingCode
+                  ? {
+                      number: result.trackingCode,
+                      carrier: "Giao Hàng Nhanh (GHN)",
+                      status: "TRANSIT",
+                      estimated: "2-3 ngày",
+                      note: ghnNote,
+                    }
+                  : o.tracking,
+              }
+            : o
+        )
+      );
+
+      setGhnSuccessResult({
+        trackingCode: result.trackingCode,
+        message: result.message || "Tạo đơn giao vận GHN thành công!",
+      });
+    } catch (err: any) {
+      console.error("Lỗi khi bàn giao đơn GHN:", err);
+      const errMsg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Không thể bàn giao đơn sang GHN. Vui lòng kiểm tra lại địa chỉ giao hàng hoặc tài khoản GHN Sandbox.";
+      setGhnError(errMsg);
+    } finally {
+      setIsGhnSubmitting(false);
+    }
+  };
+
+  const handleOpenRejectModal = (order: Order) => {
+    setSelectedOrderForReject(order);
+    setRejectReason("Hết hàng trong kho");
+    setRejectCustomNote("");
+    setRejectError(null);
+    setShowRejectModal(true);
+  };
+
+  const handleConfirmReject = async () => {
+    if (!selectedOrderForReject) return;
+    setIsRejectSubmitting(true);
+    setRejectError(null);
+
+    try {
+      const fullReason = rejectCustomNote.trim()
+        ? `${rejectReason}: ${rejectCustomNote.trim()}`
+        : rejectReason;
+
+      await shopService.updateOrderStatus(
+        selectedOrderForReject.id,
+        "CANCELLED",
+        fullReason,
+        undefined,
+        fullReason
+      );
+
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === selectedOrderForReject.id
+            ? {
+                ...o,
+                orderStatus: "CANCELLED",
+                note: fullReason,
+              }
+            : o
+        )
+      );
+
+      setShowRejectModal(false);
+      setSelectedOrderForReject(null);
+    } catch (err: any) {
+      console.error("Lỗi khi từ chối đơn hàng:", err);
+      const errMsg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Không thể từ chối đơn hàng. Vui lòng thử lại.";
+      setRejectError(errMsg);
+    } finally {
+      setIsRejectSubmitting(false);
+    }
   };
 
   const handleOpenAddModal = () => {
@@ -1085,6 +1249,129 @@ export const ShopDashboardPage: React.FC = () => {
     .reduce((s, o) => s + o.totalAmount, 0);
   const pendingCount = orders.filter((o) => o.orderStatus === "PENDING").length;
 
+  const pendingOrdersCount = pendingCount;
+  const processingOrdersCount = useMemo(
+    () => orders.filter((o) => o.orderStatus === "PROCESSING").length,
+    [orders]
+  );
+  const shippingOrdersCount = useMemo(
+    () =>
+      orders.filter(
+        (o) =>
+          o.orderStatus === "SHIPPING" ||
+          o.orderStatus === "SHIPPED" ||
+          o.orderStatus === "DELIVERING"
+      ).length,
+    [orders]
+  );
+  const deliveredOrdersCount = useMemo(
+    () => orders.filter((o) => o.orderStatus === "DELIVERED").length,
+    [orders]
+  );
+  const cancelledOrdersCount = useMemo(
+    () =>
+      orders.filter(
+        (o) =>
+          o.orderStatus === "CANCELLED" ||
+          o.orderStatus === "FAILED" ||
+          o.orderStatus === "RETURNED"
+      ).length,
+    [orders]
+  );
+
+  const isOrderFilterActive =
+    orderSearch.trim() !== "" ||
+    orderStatusFilter !== "ALL" ||
+    orderPaymentFilter !== "ALL" ||
+    orderSortBy !== "NEWEST";
+
+  const handleResetOrderFilters = () => {
+    setOrderSearch("");
+    setOrderStatusFilter("ALL");
+    setOrderPaymentFilter("ALL");
+    setOrderSortBy("NEWEST");
+  };
+
+  const filteredOrders = useMemo(() => {
+    return orders
+      .filter((o) => {
+        // 1. Status Filter
+        if (orderStatusFilter === "PENDING") {
+          if (o.orderStatus !== "PENDING") return false;
+        } else if (orderStatusFilter === "PROCESSING") {
+          if (o.orderStatus !== "PROCESSING") return false;
+        } else if (orderStatusFilter === "SHIPPING") {
+          if (
+            !(
+              o.orderStatus === "SHIPPING" ||
+              o.orderStatus === "SHIPPED" ||
+              o.orderStatus === "DELIVERING"
+            )
+          )
+            return false;
+        } else if (orderStatusFilter === "DELIVERED") {
+          if (o.orderStatus !== "DELIVERED") return false;
+        } else if (orderStatusFilter === "CANCELLED") {
+          if (
+            !(
+              o.orderStatus === "CANCELLED" ||
+              o.orderStatus === "FAILED" ||
+              o.orderStatus === "RETURNED"
+            )
+          )
+            return false;
+        }
+
+        // 2. Payment Method Filter
+        if (orderPaymentFilter !== "ALL" && o.paymentMethod !== orderPaymentFilter) {
+          return false;
+        }
+
+        // 3. Search Keyword
+        if (orderSearch.trim()) {
+          const q = orderSearch.trim().toLowerCase();
+          const matchId = String(o.id).toLowerCase().includes(q);
+          const matchCode = formatOrderCode(o.id).toLowerCase().includes(q);
+          const matchCustomer = (o.customerName || "").toLowerCase().includes(q);
+          const matchPhone = (o.customerPhone || "").toLowerCase().includes(q);
+          const matchAddress = (o.shippingAddress || "").toLowerCase().includes(q);
+          const matchTracking = (o.tracking?.number || "").toLowerCase().includes(q);
+          const matchItem = (o.items || []).some((i) =>
+            (i.book?.title || "").toLowerCase().includes(q)
+          );
+
+          if (
+            !matchId &&
+            !matchCode &&
+            !matchCustomer &&
+            !matchPhone &&
+            !matchAddress &&
+            !matchTracking &&
+            !matchItem
+          ) {
+            return false;
+          }
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        if (orderSortBy === "NEWEST") {
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        }
+        if (orderSortBy === "OLDEST") {
+          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        }
+        if (orderSortBy === "AMOUNT_DESC") {
+          return b.totalAmount - a.totalAmount;
+        }
+        if (orderSortBy === "AMOUNT_ASC") {
+          return a.totalAmount - b.totalAmount;
+        }
+        return 0;
+      });
+  }, [orders, orderStatusFilter, orderPaymentFilter, orderSearch, orderSortBy]);
+
   const formatChatTime = (dateStr?: string): string => {
     if (!dateStr) return "";
     if (dateStr === "Vừa xong") return dateStr;
@@ -1447,15 +1734,143 @@ export const ShopDashboardPage: React.FC = () => {
       {/* TAB 1: ORDERS */}
       {tab === "orders" && (
         <Card className="overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h2 className="font-bold text-slate-800 text-base">
-              Danh sách đơn hàng cần xử lý
-            </h2>
-            <Badge
-              label={`${pendingCount} đơn chờ xử lý`}
-              color="#b45309"
-              bg="#fef3c7"
-            />
+          {/* Header 1: Title, Search & Filters */}
+          <div className="p-4 sm:px-6 sm:py-4 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="font-bold text-slate-800 text-base">
+                  Quản lý đơn hàng
+                </h2>
+                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                  {filteredOrders.length} / {orders.length} đơn
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Kiểm tra, xác nhận đóng gói và bàn giao vận chuyển cho shipper GHN
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Search input */}
+              <div className="relative min-w-[220px] sm:min-w-[260px] flex-1 sm:flex-initial">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={orderSearch}
+                  onChange={(e) => setOrderSearch(e.target.value)}
+                  placeholder="Mã đơn, tên khách, SĐT, tên sách..."
+                  className="w-full text-xs pl-8 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                {orderSearch && (
+                  <button
+                    onClick={() => setOrderSearch("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                    title="Xóa tìm kiếm"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+
+              {/* Payment Filter */}
+              <select
+                value={orderPaymentFilter}
+                onChange={(e) => setOrderPaymentFilter(e.target.value as any)}
+                className="text-xs border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 text-slate-700 font-medium focus:outline-none focus:border-blue-500 cursor-pointer"
+              >
+                <option value="ALL">Tất cả thanh toán</option>
+                <option value="COD">Thanh toán COD</option>
+                <option value="ONLINE">Trực tuyến (VNPAY/MoMo)</option>
+              </select>
+
+              {/* Sort Dropdown */}
+              <select
+                value={orderSortBy}
+                onChange={(e) => setOrderSortBy(e.target.value as any)}
+                className="text-xs border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 text-slate-700 font-medium focus:outline-none focus:border-blue-500 cursor-pointer"
+              >
+                <option value="NEWEST">Mới nhất trước</option>
+                <option value="OLDEST">Cũ nhất trước</option>
+                <option value="AMOUNT_DESC">Giá trị: Cao → Thấp</option>
+                <option value="AMOUNT_ASC">Giá trị: Thấp → Cao</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Header 2: Lifecycle Status Filter Tabs */}
+          <div className="px-4 sm:px-6 py-2.5 bg-slate-50/70 border-b border-slate-100 flex items-center justify-between gap-2 overflow-x-auto scrollbar-none">
+            <div className="flex items-center gap-1.5 shrink-0">
+              {[
+                {
+                  key: "ALL",
+                  label: "Tất cả",
+                  count: orders.length,
+                  badgeColor: "bg-slate-100 text-slate-600",
+                },
+                {
+                  key: "PENDING",
+                  label: "Chờ xác nhận",
+                  count: pendingOrdersCount,
+                  badgeColor: pendingOrdersCount > 0 ? "bg-amber-100 text-amber-800 font-bold" : "bg-slate-100 text-slate-500",
+                },
+                {
+                  key: "PROCESSING",
+                  label: "Đang đóng gói",
+                  count: processingOrdersCount,
+                  badgeColor: processingOrdersCount > 0 ? "bg-blue-100 text-blue-800 font-bold" : "bg-slate-100 text-slate-500",
+                },
+                {
+                  key: "SHIPPING",
+                  label: "Đang giao GHN",
+                  count: shippingOrdersCount,
+                  badgeColor: shippingOrdersCount > 0 ? "bg-purple-100 text-purple-800 font-bold" : "bg-slate-100 text-slate-500",
+                },
+                {
+                  key: "DELIVERED",
+                  label: "Đã giao",
+                  count: deliveredOrdersCount,
+                  badgeColor: deliveredOrdersCount > 0 ? "bg-emerald-100 text-emerald-800 font-bold" : "bg-slate-100 text-slate-500",
+                },
+                {
+                  key: "CANCELLED",
+                  label: "Đã hủy / Hoàn",
+                  count: cancelledOrdersCount,
+                  badgeColor: cancelledOrdersCount > 0 ? "bg-rose-100 text-rose-800 font-bold" : "bg-slate-100 text-slate-500",
+                },
+              ].map((t) => {
+                const isActive = orderStatusFilter === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    onClick={() => setOrderStatusFilter(t.key as any)}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                      isActive
+                        ? "bg-slate-900 text-white shadow-xs"
+                        : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-100/80"
+                    }`}
+                  >
+                    <span>{t.label}</span>
+                    <span
+                      className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                        isActive ? "bg-white/20 text-white font-bold" : t.badgeColor
+                      }`}
+                    >
+                      {t.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Reset Filters button if any filter applied */}
+            {isOrderFilterActive && (
+              <button
+                onClick={handleResetOrderFilters}
+                className="px-2.5 py-1 text-[11px] font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors flex items-center gap-1 shrink-0 cursor-pointer ml-auto"
+                title="Đưa về mặc định"
+              >
+                <RotateCcw size={11} /> Xóa bộ lọc
+              </button>
+            )}
           </div>
 
           <div className="divide-y divide-slate-100">
@@ -1463,8 +1878,26 @@ export const ShopDashboardPage: React.FC = () => {
               <p className="text-center text-slate-400 py-12 text-sm">
                 Chưa có đơn hàng nào.
               </p>
+            ) : filteredOrders.length === 0 ? (
+              <div className="p-12 text-center">
+                <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3">
+                  <Filter size={20} />
+                </div>
+                <p className="font-semibold text-slate-700 text-sm">
+                  Không tìm thấy đơn hàng phù hợp
+                </p>
+                <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                  Không có đơn hàng nào khớp với điều kiện tìm kiếm hoặc bộ lọc hiện tại của bạn.
+                </p>
+                <button
+                  onClick={handleResetOrderFilters}
+                  className="mt-3.5 px-3.5 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  Xóa bộ lọc và xem tất cả đơn
+                </button>
+              </div>
             ) : (
-              orders.map((order) => {
+              filteredOrders.map((order) => {
                 const s = orderStatusInfo(order.orderStatus);
                 return (
                   <div
@@ -1549,7 +1982,7 @@ export const ShopDashboardPage: React.FC = () => {
                               size="sm"
                               variant="outline"
                               color="#dc2626"
-                              onClick={() => handleUpdateStatus(order.id, "CANCELLED")}
+                              onClick={() => handleOpenRejectModal(order)}
                             >
                               <X size={14} /> Từ chối
                             </Btn>
@@ -1557,13 +1990,36 @@ export const ShopDashboardPage: React.FC = () => {
                         )}
 
                         {order.orderStatus === "PROCESSING" && (
-                          <Btn
-                            size="sm"
-                            color="#1d4ed8"
-                            onClick={() => handleUpdateStatus(order.id, "SHIPPED")}
-                          >
-                            <Truck size={14} /> Bàn giao shipper GHN
-                          </Btn>
+                          <div className="flex items-center gap-2">
+                            <Btn
+                              size="sm"
+                              color="#1d4ed8"
+                              onClick={() => handleOpenGhnModal(order)}
+                            >
+                              <Truck size={14} /> Bàn giao shipper GHN
+                            </Btn>
+                            <Btn
+                              size="sm"
+                              variant="outline"
+                              color="#dc2626"
+                              onClick={() => handleOpenRejectModal(order)}
+                            >
+                              <X size={14} /> Hủy đơn
+                            </Btn>
+                          </div>
+                        )}
+
+                        {(order.orderStatus === "SHIPPING" || order.orderStatus === "SHIPPED") && (
+                          <div className="flex items-center gap-2 text-xs text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
+                            <Truck size={14} className="text-blue-600" />
+                            <span>
+                              {order.tracking?.number ? (
+                                <>Mã vận đơn GHN: <strong className="font-mono font-bold text-blue-900">{order.tracking.number}</strong></>
+                              ) : (
+                                "Đang vận chuyển qua GHN"
+                              )}
+                            </span>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -3272,6 +3728,331 @@ export const ShopDashboardPage: React.FC = () => {
           </div>
         </Modal>
       )}
+
+      {/* Modal Bàn Giao Vận Chuyển GHN Express */}
+      <Modal
+        isOpen={showGhnModal}
+        onClose={() => {
+          if (!isGhnSubmitting) {
+            setShowGhnModal(false);
+            setSelectedOrderForGhn(null);
+            setGhnSuccessResult(null);
+            setGhnError(null);
+          }
+        }}
+        title="Bàn giao đơn hàng cho GHN Express"
+        maxWidth="max-w-lg"
+        footer={
+          ghnSuccessResult ? (
+            <div className="flex items-center justify-end">
+              <Btn
+                color="#1d4ed8"
+                size="sm"
+                onClick={() => {
+                  setShowGhnModal(false);
+                  setSelectedOrderForGhn(null);
+                  setGhnSuccessResult(null);
+                }}
+              >
+                Hoàn tất
+              </Btn>
+            </div>
+          ) : (
+            <div className="flex items-center justify-end gap-2">
+              <Btn
+                variant="outline"
+                size="sm"
+                disabled={isGhnSubmitting}
+                onClick={() => {
+                  setShowGhnModal(false);
+                  setSelectedOrderForGhn(null);
+                  setGhnError(null);
+                }}
+              >
+                Hủy bỏ
+              </Btn>
+              <Btn
+                color="#1d4ed8"
+                size="sm"
+                disabled={isGhnSubmitting || !ghnWeight || ghnWeight <= 0}
+                onClick={handleConfirmGhnHandover}
+              >
+                {isGhnSubmitting ? (
+                  <span className="flex items-center gap-1.5">
+                    <Loader2 size={14} className="animate-spin" /> Đang kết nối GHN...
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5">
+                    <Truck size={14} /> Xác nhận & Bàn giao GHN
+                  </span>
+                )}
+              </Btn>
+            </div>
+          )
+        }
+      >
+        {selectedOrderForGhn && (
+          <div className="space-y-4 text-xs">
+            {/* Success State */}
+            {ghnSuccessResult ? (
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl space-y-3 animate-in fade-in zoom-in-95">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                    <CheckCircle size={20} />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-emerald-900 text-sm">
+                      Bàn giao GHN Express thành công!
+                    </h4>
+                    <p className="text-emerald-700 text-xs mt-0.5">
+                      {ghnSuccessResult.message || "Đơn hàng đã được chuyển sang trạng thái Đang giao hàng."}
+                    </p>
+                  </div>
+                </div>
+
+                {ghnSuccessResult.trackingCode && (
+                  <div className="p-3 bg-white rounded-lg border border-emerald-200 flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] text-slate-500 font-medium">Mã vận đơn GHN:</span>
+                      <p className="font-mono font-bold text-sm text-blue-700">
+                        {ghnSuccessResult.trackingCode}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (ghnSuccessResult.trackingCode) {
+                          navigator.clipboard.writeText(ghnSuccessResult.trackingCode);
+                          alert("Đã sao chép mã vận đơn: " + ghnSuccessResult.trackingCode);
+                        }
+                      }}
+                      className="px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 transition-colors flex items-center gap-1"
+                    >
+                      <Copy size={12} /> Sao chép
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                {/* Error Banner */}
+                {ghnError && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2 text-rose-700 animate-in fade-in">
+                    <AlertCircle size={16} className="shrink-0 mt-0.5 text-rose-600" />
+                    <div>
+                      <p className="font-bold text-rose-800">Lỗi khi tạo vận đơn GHN</p>
+                      <p className="mt-0.5 text-rose-600">{ghnError}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Order Information summary */}
+                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono font-bold text-blue-700">
+                      {formatOrderCode(selectedOrderForGhn.id)}
+                    </span>
+                    <span className="font-bold text-slate-800">
+                      {fmt(selectedOrderForGhn.totalAmount)}
+                    </span>
+                  </div>
+                  <p className="text-slate-700">
+                    <strong>Người nhận:</strong> {selectedOrderForGhn.customerName} ({selectedOrderForGhn.customerPhone})
+                  </p>
+                  <p className="text-slate-500 line-clamp-2">
+                    <strong>Địa chỉ:</strong> {selectedOrderForGhn.shippingAddress}
+                  </p>
+                  <p className="text-slate-500">
+                    <strong>Số lượng sách:</strong> {selectedOrderForGhn.items.reduce((s, i) => s + i.quantity, 0)} cuốn
+                  </p>
+                </div>
+
+                {/* Form fields */}
+                <div className="space-y-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <Scale size={14} className="text-slate-500" /> Cân nặng bưu kiện (Gram) *
+                      </span>
+                      <span className="text-[11px] font-normal text-slate-400">
+                        Tối thiểu 50g
+                      </span>
+                    </label>
+                    <input
+                      type="number"
+                      min={50}
+                      step={50}
+                      value={ghnWeight}
+                      onChange={(e) => setGhnWeight(Math.max(0, Number(e.target.value)))}
+                      placeholder="Ví dụ: 500"
+                      className="w-full border border-slate-200 rounded-xl p-2.5 bg-white text-xs text-slate-800 focus:outline-none focus:border-blue-500 font-semibold"
+                    />
+                    {/* Quick selection tags */}
+                    <div className="flex items-center gap-1.5 mt-1.5">
+                      <span className="text-[11px] text-slate-400">Gợi ý nhanh:</span>
+                      {[
+                        { label: "300g (1 cuốn)", val: 300 },
+                        { label: "500g (chuẩn)", val: 500 },
+                        { label: "1000g (2-3 cuốn)", val: 1000 },
+                        { label: "2000g (bộ sách)", val: 2000 },
+                      ].map((item) => (
+                        <button
+                          key={item.val}
+                          type="button"
+                          onClick={() => setGhnWeight(item.val)}
+                          className={`px-2 py-0.5 text-[10px] rounded-md border transition-colors ${
+                            ghnWeight === item.val
+                              ? "bg-blue-50 border-blue-300 text-blue-700 font-bold"
+                              : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      Lưu ý kiểm tra hàng của GHN (Required Note) *
+                    </label>
+                    <select
+                      value={ghnRequiredNote}
+                      onChange={(e) => setGhnRequiredNote(e.target.value)}
+                      className="w-full border border-slate-200 rounded-xl p-2.5 bg-white text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="CHOXEMHANGKHONGTHU">Cho xem hàng không cho thử (Khuyên dùng cho Sách)</option>
+                      <option value="CHOTHOIGIAN">Cho thử hàng</option>
+                      <option value="KHONGCHOXEMHANG">Không cho xem hàng</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      Ghi chú thêm cho shipper GHN
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={ghnNote}
+                      onChange={(e) => setGhnNote(e.target.value)}
+                      placeholder="Ví dụ: Giao hàng cẩn thận, hàng sách truyện dễ móp méo góc..."
+                      className="w-full border border-slate-200 rounded-xl p-2.5 bg-white text-xs text-slate-800 focus:outline-none focus:border-blue-500 resize-none"
+                    />
+                  </div>
+
+                  <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-xl text-amber-800 text-[11px] leading-relaxed flex items-start gap-2">
+                    <Info size={14} className="shrink-0 mt-0.5 text-amber-600" />
+                    <p>
+                      Đơn hàng sẽ được gửi trực tiếp đến cổng GHN Sandbox. Sau khi thành công, mã vận đơn sẽ được sinh tự động và cập nhật trạng thái đơn thành <strong>Đang giao hàng (SHIPPING)</strong>.
+                    </p>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal Từ Chối Đơn Hàng */}
+      <Modal
+        isOpen={showRejectModal}
+        onClose={() => {
+          if (!isRejectSubmitting) {
+            setShowRejectModal(false);
+            setSelectedOrderForReject(null);
+            setRejectError(null);
+          }
+        }}
+        title="Từ chối / Hủy đơn hàng"
+        maxWidth="max-w-md"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Btn
+              variant="outline"
+              size="sm"
+              disabled={isRejectSubmitting}
+              onClick={() => {
+                setShowRejectModal(false);
+                setSelectedOrderForReject(null);
+                setRejectError(null);
+              }}
+            >
+              Quay lại
+            </Btn>
+            <Btn
+              color="#dc2626"
+              size="sm"
+              disabled={isRejectSubmitting}
+              onClick={handleConfirmReject}
+            >
+              {isRejectSubmitting ? (
+                <span className="flex items-center gap-1.5">
+                  <Loader2 size={14} className="animate-spin" /> Đang xử lý...
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5">
+                  <X size={14} /> Xác nhận từ chối
+                </span>
+              )}
+            </Btn>
+          </div>
+        }
+      >
+        {selectedOrderForReject && (
+          <div className="space-y-4 text-xs">
+            {rejectError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2 text-rose-700 animate-in fade-in">
+                <AlertCircle size={16} className="shrink-0 mt-0.5 text-rose-600" />
+                <div>
+                  <p className="font-bold text-rose-800">Không thể từ chối đơn hàng</p>
+                  <p className="mt-0.5 text-rose-600">{rejectError}</p>
+                </div>
+              </div>
+            )}
+
+            <div className="p-3 bg-rose-50/60 border border-rose-200 rounded-xl text-rose-800 flex items-start gap-2.5">
+              <ShieldAlert size={16} className="shrink-0 mt-0.5 text-rose-600" />
+              <div className="text-[11px] leading-relaxed">
+                <p className="font-bold text-rose-900">Xác nhận từ chối đơn hàng</p>
+                <p className="text-rose-700 mt-0.5">
+                  Hành động này sẽ hủy đơn hàng <strong>{formatOrderCode(selectedOrderForReject.id)}</strong> của khách hàng <strong>{selectedOrderForReject.customerName}</strong>. Lý do sẽ được thông báo đến khách hàng.
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1.5">
+                Lý do từ chối đơn hàng: *
+              </label>
+              <select
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                className="w-full border border-slate-200 rounded-xl p-2.5 bg-white text-xs text-slate-800 focus:outline-none focus:border-red-500"
+              >
+                <option value="Hết hàng trong kho">Hết hàng trong kho</option>
+                <option value="Sách bị hư hỏng / lỗi in ấn chưa có bản thay thế">Sách bị hư hỏng / lỗi in ấn chưa có bản thay thế</option>
+                <option value="Không liên lạc được với khách hàng để xác nhận">Không liên lạc được với khách hàng để xác nhận</option>
+                <option value="Địa chỉ nhận hàng nằm ngoài khu vực phục vụ">Địa chỉ nhận hàng nằm ngoài khu vực phục vụ</option>
+                <option value="Khách hàng yêu cầu hủy đơn">Khách hàng yêu cầu hủy đơn qua chat / điện thoại</option>
+                <option value="Lý do khác">Lý do khác</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1.5">
+                Ghi chú chi tiết cho khách hàng (Tùy chọn):
+              </label>
+              <textarea
+                rows={3}
+                value={rejectCustomNote}
+                onChange={(e) => setRejectCustomNote(e.target.value)}
+                placeholder="Nhập thông tin hỗ trợ thêm cho khách hàng (nếu có)..."
+                className="w-full border border-slate-200 rounded-xl p-2.5 bg-white text-xs text-slate-800 focus:outline-none focus:border-red-500 resize-none"
+              />
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };

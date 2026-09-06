@@ -87,9 +87,17 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({
     { key: "RETURNED", label: "Đổi trả" },
   ];
 
-  const filteredOrders = orders.filter((o) =>
-    statusFilter === "ALL" ? true : o.orderStatus === statusFilter
-  );
+  const filteredOrders = orders.filter((o) => {
+    if (statusFilter === "ALL") return true;
+    if (statusFilter === "SHIPPED") {
+      return (
+        o.orderStatus === "SHIPPED" ||
+        o.orderStatus === "SHIPPING" ||
+        o.orderStatus === "DELIVERING"
+      );
+    }
+    return o.orderStatus === statusFilter;
+  });
 
   const handleConfirmCancel = async () => {
     if (!orderToCancel) return;
@@ -151,6 +159,13 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({
           const count =
             t.key === "ALL"
               ? orders.length
+              : t.key === "SHIPPED"
+              ? orders.filter(
+                  (o) =>
+                    o.orderStatus === "SHIPPED" ||
+                    o.orderStatus === "SHIPPING" ||
+                    o.orderStatus === "DELIVERING"
+                ).length
               : orders.filter((o) => o.orderStatus === t.key).length;
           return (
             <button

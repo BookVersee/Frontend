@@ -43,11 +43,35 @@ export function orderStatusInfo(s: OrderStatus): StatusInfo {
       bg: "#f5eefc",
       icon: <Truck size={11} />,
     },
+    SHIPPING: {
+      label: "Đang giao",
+      color: "#3a2d4a",
+      bg: "#f5eefc",
+      icon: <Truck size={11} />,
+    },
+    DELIVERING: {
+      label: "Đang giao hàng",
+      color: "#1d4ed8",
+      bg: "#eff6ff",
+      icon: <Truck size={11} />,
+    },
+    APPROVED: {
+      label: "Đã duyệt",
+      color: "#047857",
+      bg: "#ecfdf5",
+      icon: <CheckCircle size={11} />,
+    },
     DELIVERED: {
       label: "Đã giao",
       color: "#3d5c2e",
       bg: "#e2ede0",
       icon: <CheckCircle size={11} />,
+    },
+    FAILED: {
+      label: "Giao thất bại",
+      color: "#b91c1c",
+      bg: "#fef2f2",
+      icon: <XCircle size={11} />,
     },
     CANCELLED: {
       label: "Đã hủy",

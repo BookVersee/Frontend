@@ -4,9 +4,13 @@ export type OrderStatus =
   | "PENDING"
   | "PAID"
   | "PROCESSING"
+  | "SHIPPING"
   | "SHIPPED"
+  | "DELIVERING"
   | "DELIVERED"
   | "CANCELLED"
+  | "FAILED"
+  | "APPROVED"
   | "RETURNED";
 
 export type PaymentMethod = "COD" | "ONLINE";
