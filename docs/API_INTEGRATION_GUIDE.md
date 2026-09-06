@@ -75,7 +75,7 @@ Trong dự án BookVerse, việc kết nối API được chia thành **4 vị t
 
 ```text
 Frontend/
-├── .env.development            📍 NƠI 1: Khai báo địa chỉ gốc của API (VITE_API_URL=/api)
+├── .env                    📍 NƠI 1: Khai báo địa chỉ gốc của API (VITE_API_URL=/api)
 ├── vite.config.js              📍 NƠI 2: Cấu hình Reverse Proxy chuyển tiếp /api -> localhost:5000
 └── src/
     ├── services/
@@ -95,7 +95,7 @@ Frontend/
 
 ### Chi tiết từng vị trí cấu hình:
 
-#### 📍 Vị trí 1: Khai báo Biến môi trường ([`.env.development`](file:///Users/nguyenvanminhtam/Frontend/.env.development))
+#### 📍 Vị trí 1: Khai báo Biến môi trường ([`.env`](file:///Users/nguyenvanminhtam/Frontend/.env))
 ```env
 # Định nghĩa tiền tố API
 VITE_API_URL=/api

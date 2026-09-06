@@ -10,10 +10,17 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
-# Environment files
+# Environment files & Secrets
+.env
+.env.development
+.env.production
+.env.test
 .env.local
 .env.*.local
 *.local
+
+# Cho phép Git theo dõi file template mẫu
+!.env.example
 
 # Editor directories and files
 .vscode/*

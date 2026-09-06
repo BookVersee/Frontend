@@ -53,9 +53,9 @@ Dự án đã được **làm phẳng cấu trúc (Flattened)** hoàn toàn: lo�
 
 ```text
 Frontend/
-├── .env.development                    # Biến môi trường cho môi trường Dev (VITE_API_URL=/api)
-├── .env.example                        # Mẫu biến môi trường
-├── .gitignore                          # Cấu hình bỏ qua tệp tin rác/build
+├── .env                                # Biến môi trường máy local (VITE_*, ports, DB; được git ignore)
+├── .env.example                        # Mẫu biến môi trường cho lập trình viên
+├── .gitignore                          # Cấu hình bỏ qua tệp tin rác/build/secrets
 ├── README.md                           # Giới thiệu tổng quan dự án
 ├── index.html                          # Entry HTML Template
 ├── package.json                        # Khai báo Dependencies, Scripts & Metadata
@@ -295,7 +295,7 @@ npm run dev
 
 ### 7.2. Kết nối với Backend API (.NET 8 / ASP.NET Web API)
 
-1. Mở file [`.env.development`](file:///Users/nguyenvanminhtam/Frontend/.env.development):
+1. Mở file [`.env`](file:///Users/nguyenvanminhtam/Frontend/.env):
    ```env
    VITE_API_URL=/api
    ```
