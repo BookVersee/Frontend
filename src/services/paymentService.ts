@@ -117,6 +117,26 @@ export const paymentService = {
     }
   },
 
+  // 4. Chủ động truy vấn đồng bộ trạng thái thanh toán MoMo và kích hoạt hoàn kho / giỏ hàng
+  async queryPaymentStatus(orderId: string | number): Promise<{ isPaid: boolean; message: string; transactionCode?: string } | null> {
+    if (!isValidGuid(orderId)) {
+      return null;
+    }
+    try {
+      const res = await apiClient.post<ApiResponse<{ order_id: string; is_paid: boolean; transaction_code?: string }>>(
+        `/payment/QueryPaymentStatus?orderId=${orderId}`
+      );
+      return {
+        isPaid: !!res.data?.data?.is_paid,
+        message: res.data?.message || "",
+        transactionCode: res.data?.data?.transaction_code,
+      };
+    } catch (error) {
+      console.warn("queryPaymentStatus API error:", error);
+      return null;
+    }
+  },
+
   // Backward compatibility
   async processVnpayRefund(params: {
     orderId: string | number;
