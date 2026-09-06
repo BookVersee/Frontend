@@ -1,6 +1,6 @@
 import { apiClient } from "./api";
 import { User, AuthResponse, Role, Shop, ApiResponse, Transaction, BackendTransactionResponse } from "../types";
-import { setStoredToken, setStoredUser, removeStoredToken, getStoredUser } from "../utils/storage";
+import { setStoredToken, setStoredUser, removeStoredToken, getStoredUser, getStoredRefreshToken, setStoredRefreshToken } from "../utils/storage";
 import { DEMO_USERS, INITIAL_SHOPS, INITIAL_TRANSACTIONS } from "./mockData";
 
 export interface RegisterData {
@@ -81,6 +81,9 @@ export const authService = {
       };
 
       setStoredToken(token);
+      if (tokenResponse.refreshToken) {
+        setStoredRefreshToken(tokenResponse.refreshToken);
+      }
       setStoredUser(user);
       return { token, user };
     } catch (error: any) {
@@ -174,6 +177,9 @@ export const authService = {
       };
 
       setStoredToken(token);
+      if (tokenResponse.refreshToken) {
+        setStoredRefreshToken(tokenResponse.refreshToken);
+      }
       setStoredUser(user);
       return { token, user };
     } catch (error: any) {
@@ -479,6 +485,9 @@ export const authService = {
         }
 
         setStoredToken(token);
+        if (tokenResponse.refreshToken) {
+          setStoredRefreshToken(tokenResponse.refreshToken);
+        }
         setStoredUser(user);
         return { token, user };
       } catch (error: any) {
@@ -641,11 +650,62 @@ export const authService = {
     }
   },
 
+  async refreshToken(): Promise<string> {
+    const currentRefreshToken = getStoredRefreshToken();
+    if (!currentRefreshToken) {
+      throw new Error("Không tìm thấy refresh token trong bộ nhớ.");
+    }
+
+    const response = await apiClient.post<ApiResponse<any>>(
+      "/auth/RefreshToken",
+      { refreshToken: currentRefreshToken },
+      {
+        headers: {
+          "x-skip-auth-refresh": "true",
+        },
+      }
+    );
+
+    const tokenResponse = response.data.data;
+    const newAccessToken = tokenResponse.accessToken || tokenResponse.token;
+    const newRefreshToken = tokenResponse.refreshToken;
+
+    if (!newAccessToken) {
+      throw new Error("Phản hồi refresh token không hợp lệ.");
+    }
+
+    setStoredToken(newAccessToken);
+    if (newRefreshToken) {
+      setStoredRefreshToken(newRefreshToken);
+    }
+
+    if (tokenResponse.user) {
+      const u = tokenResponse.user;
+      const user: User = {
+        id: u.id,
+        name: u.fullName || u.username,
+        email: u.email,
+        role: (u.role?.toLowerCase() as Role) || "customer",
+        phone: u.phone,
+        address: u.address,
+        status: u.status || "ACTIVE",
+        balance: 0,
+        createdAt: u.createdAt,
+      };
+      setStoredUser(user);
+    }
+
+    return newAccessToken;
+  },
+
   async logout(refreshToken?: string): Promise<void> {
+    const tokenToRevoke = refreshToken || getStoredRefreshToken();
     try {
-      await apiClient.post("/user/Logout", {
-        refreshToken: refreshToken || undefined,
-      });
+      if (tokenToRevoke) {
+        await apiClient.post("/user/Logout", {
+          refreshToken: tokenToRevoke,
+        });
+      }
     } catch (error) {
       console.warn("[authService] Backend logout API error, proceeding with local cleanup:", error);
     } finally {
