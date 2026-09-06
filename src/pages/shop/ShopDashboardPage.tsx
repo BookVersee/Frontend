@@ -46,6 +46,9 @@ import {
   ThumbsUp,
   Scale,
   RotateCcw,
+  RefreshCw,
+  ShieldCheck,
+  ZoomIn,
 } from "lucide-react";
 import { Order, Book, Category, OrderStatus, OrderFeedback, ChatMessage, BookImageDto, Shop } from "../../types";
 import { shopService } from "../../services/shopService";
@@ -89,12 +92,23 @@ export const ShopDashboardPage: React.FC = () => {
   // Search & Filter in shop orders
   const [orderSearch, setOrderSearch] = useState("");
   const [orderStatusFilter, setOrderStatusFilter] = useState<
-    "ALL" | "PENDING" | "PROCESSING" | "SHIPPING" | "DELIVERED" | "CANCELLED"
+    "ALL" | "PENDING" | "PROCESSING" | "SHIPPING" | "DELIVERED" | "CANCELLED" | "RETURNS"
   >("ALL");
   const [orderPaymentFilter, setOrderPaymentFilter] = useState<"ALL" | "COD" | "ONLINE">("ALL");
   const [orderSortBy, setOrderSortBy] = useState<
     "NEWEST" | "OLDEST" | "AMOUNT_DESC" | "AMOUNT_ASC"
   >("NEWEST");
+
+  // Process Return Request Modal State
+  const [showProcessReturnModal, setShowProcessReturnModal] = useState(false);
+  const [selectedReturnOrder, setSelectedReturnOrder] = useState<Order | null>(null);
+  const [isApproveReturn, setIsApproveReturn] = useState(true);
+  const [shopReturnNote, setShopReturnNote] = useState("");
+  const [isSubmittingReturnProcess, setIsSubmittingReturnProcess] = useState(false);
+  const [returnProcessError, setReturnProcessError] = useState<string | null>(null);
+
+  // Lightbox / Zoom image state for Return Evidence
+  const [zoomImageSrc, setZoomImageSrc] = useState<string | null>(null);
 
   // Search & Filter in shop products
   const [productSearch, setProductSearch] = useState("");
@@ -1278,6 +1292,17 @@ export const ShopDashboardPage: React.FC = () => {
       ).length,
     [orders]
   );
+  const returnOrdersCount = useMemo(
+    () =>
+      orders.filter(
+        (o) =>
+          !!o.returnRequest ||
+          (o.items || []).some(
+            (i) => !!i.returnRequest || (i.returnStatus && i.returnStatus !== "NONE")
+          )
+      ).length,
+    [orders]
+  );
 
   const isOrderFilterActive =
     orderSearch.trim() !== "" ||
@@ -1290,6 +1315,69 @@ export const ShopDashboardPage: React.FC = () => {
     setOrderStatusFilter("ALL");
     setOrderPaymentFilter("ALL");
     setOrderSortBy("NEWEST");
+  };
+
+  const handleOpenProcessReturnModal = (order: Order, isApprove: boolean) => {
+    setSelectedReturnOrder(order);
+    setIsApproveReturn(isApprove);
+    setShopReturnNote(isApprove ? "Shop đồng ý yêu cầu đổi trả và hoàn tiền." : "Shop từ chối yêu cầu đổi trả.");
+    setReturnProcessError(null);
+    setShowProcessReturnModal(true);
+  };
+
+  const handleConfirmProcessReturn = async () => {
+    if (!selectedReturnOrder) return;
+    const reqId =
+      selectedReturnOrder.returnRequest?.id ||
+      selectedReturnOrder.items.find((i) => i.returnRequest?.id)?.returnRequest?.id;
+
+    if (!reqId) {
+      setReturnProcessError("Không tìm thấy mã yêu cầu đổi trả.");
+      return;
+    }
+
+    try {
+      setIsSubmittingReturnProcess(true);
+      setReturnProcessError(null);
+      await shopService.processReturnRequest(reqId, isApproveReturn, shopReturnNote);
+
+      setOrders((prev) =>
+        prev.map((o) => {
+          if (o.id === selectedReturnOrder.id) {
+            const updatedStatus = isApproveReturn ? "APPROVED" : "REJECTED";
+            return {
+              ...o,
+              returnRequest: o.returnRequest
+                ? {
+                    ...o.returnRequest,
+                    status: updatedStatus,
+                    shopResponse: shopReturnNote,
+                  }
+                : undefined,
+              items: o.items.map((it) => ({
+                ...it,
+                returnStatus: isApproveReturn ? "PROCESSING" : "REJECTED",
+                returnRequest: it.returnRequest
+                  ? {
+                      ...it.returnRequest,
+                      status: updatedStatus,
+                      shopResponse: shopReturnNote,
+                    }
+                  : undefined,
+              })),
+            };
+          }
+          return o;
+        })
+      );
+
+      setShowProcessReturnModal(false);
+      setSelectedReturnOrder(null);
+    } catch (err: any) {
+      setReturnProcessError(err.message || "Xử lý yêu cầu trả hàng thất bại.");
+    } finally {
+      setIsSubmittingReturnProcess(false);
+    }
   };
 
   const filteredOrders = useMemo(() => {
@@ -1320,6 +1408,13 @@ export const ShopDashboardPage: React.FC = () => {
             )
           )
             return false;
+        } else if (orderStatusFilter === "RETURNS") {
+          const hasReturn =
+            !!o.returnRequest ||
+            (o.items || []).some(
+              (i) => !!i.returnRequest || (i.returnStatus && i.returnStatus !== "NONE")
+            );
+          if (!hasReturn) return false;
         }
 
         // 2. Payment Method Filter
@@ -1831,6 +1926,12 @@ export const ShopDashboardPage: React.FC = () => {
                   badgeColor: deliveredOrdersCount > 0 ? "bg-emerald-100 text-emerald-800 font-bold" : "bg-slate-100 text-slate-500",
                 },
                 {
+                  key: "RETURNS",
+                  label: "Đổi trả / Khiếu nại",
+                  count: returnOrdersCount,
+                  badgeColor: returnOrdersCount > 0 ? "bg-amber-100 text-amber-800 font-bold" : "bg-slate-100 text-slate-500",
+                },
+                {
                   key: "CANCELLED",
                   label: "Đã hủy / Hoàn",
                   count: cancelledOrdersCount,
@@ -1933,30 +2034,214 @@ export const ShopDashboardPage: React.FC = () => {
                     </div>
 
                     <div className="bg-slate-50 rounded-xl p-3.5 mb-4 text-xs text-slate-600 space-y-2">
-                      {order.items.map((i, idx) => (
-                        <div key={idx} className="flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="w-10 h-14 rounded shrink-0 overflow-hidden bg-white border border-slate-200 flex items-center justify-center">
-                              {i.book.imageUrl ? (
-                                <img
-                                  src={i.book.imageUrl}
-                                  alt={i.book.title}
-                                  className="w-full h-full object-cover"
-                                />
-                              ) : (
-                                <BookCover book={i.book} size="xs" />
-                              )}
+                      {order.items.map((i, idx) => {
+                        const isReturnedItem =
+                          (order.returnRequest &&
+                            (i.orderDetailId === order.returnRequest.orderDetailId ||
+                              i.book.title === order.returnRequest.bookTitle)) ||
+                          i.returnRequest ||
+                          (i.returnStatus && i.returnStatus !== "NONE");
+
+                        return (
+                          <div
+                            key={idx}
+                            className={`flex items-center justify-between gap-3 p-2 rounded-xl transition-colors ${
+                              isReturnedItem ? "bg-amber-50/90 border border-amber-300/80 shadow-2xs" : ""
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="w-10 h-14 rounded shrink-0 overflow-hidden bg-white border border-slate-200 flex items-center justify-center">
+                                {i.book.imageUrl ? (
+                                  <img
+                                    src={i.book.imageUrl}
+                                    alt={i.book.title}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <BookCover book={i.book} size="xs" />
+                                )}
+                              </div>
+                              <div className="flex flex-col min-w-0">
+                                <span className="truncate font-medium text-slate-700" title={i.book.title}>
+                                  {i.book.title} × <strong className="text-slate-900">{i.quantity}</strong>
+                                </span>
+                                {isReturnedItem && (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 mt-0.5">
+                                    <RefreshCw size={11} className="text-amber-700 animate-spin-slow" /> Yêu cầu hoàn trả cuốn này
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                            <span className="truncate font-medium text-slate-700" title={i.book.title}>
-                              {i.book.title} × <strong className="text-slate-900">{i.quantity}</strong>
+                            <span className="font-semibold text-slate-800 shrink-0">
+                              {fmt(i.unitPrice * i.quantity)}
                             </span>
                           </div>
-                          <span className="font-semibold text-slate-800 shrink-0">
-                            {fmt(i.unitPrice * i.quantity)}
-                          </span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
+
+                    {/* Return Request Banner for Shop */}
+                    {order.returnRequest && (() => {
+                      const rr = order.returnRequest;
+                      const rawImages = rr.evidenceImage || rr.imageUrl || "";
+                      const evidenceImages = rawImages
+                        ? rawImages.split(",").map((s) => s.trim()).filter(Boolean)
+                        : [];
+
+                      return (
+                        <div className="mb-4 p-4.5 rounded-2xl border-2 border-amber-300/90 bg-gradient-to-br from-amber-50/90 via-orange-50/40 to-amber-50/70 shadow-xs space-y-3.5">
+                          {/* Header */}
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-2 text-amber-950 font-extrabold text-xs tracking-tight">
+                              <span className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-800 flex items-center justify-center">
+                                <RefreshCw size={13} className="text-amber-700" />
+                              </span>
+                              <span>PHIẾU YÊU CẦU ĐỔI TRẢ & HOÀN TIỀN</span>
+                            </div>
+                            <Badge
+                              label={
+                                rr.status === "APPROVED"
+                                  ? "Shop đã đồng ý"
+                                  : rr.status === "REJECTED"
+                                  ? "Shop đã từ chối"
+                                  : rr.reason?.includes("[KHIẾU NẠI ADMIN:")
+                                  ? "Khách đã khiếu nại lên Admin"
+                                  : "Chờ Shop xử lý"
+                              }
+                              color={
+                                rr.status === "APPROVED"
+                                  ? "#047857"
+                                  : rr.status === "REJECTED"
+                                  ? "#b91c1c"
+                                  : "#b45309"
+                              }
+                              bg={
+                                rr.status === "APPROVED"
+                                  ? "#d1fae5"
+                                  : rr.status === "REJECTED"
+                                  ? "#fee2e2"
+                                  : "#fef3c7"
+                              }
+                            />
+                          </div>
+
+                          {/* Grid info details */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-white/85 backdrop-blur-xs rounded-xl border border-amber-200/80 text-xs">
+                            <div className="space-y-1.5">
+                              {rr.bookTitle && (
+                                <p className="text-slate-600">
+                                  <span className="font-semibold text-slate-800">Sản phẩm hoàn trả:</span>{" "}
+                                  <strong className="text-amber-950 bg-amber-100/70 px-1.5 py-0.5 rounded font-bold">
+                                    {rr.bookTitle}
+                                  </strong>
+                                </p>
+                              )}
+                              <p className="text-slate-600">
+                                <span className="font-semibold text-slate-800">Phân loại lỗi:</span>{" "}
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300/60">
+                                  {rr.reasonType === "WRONG_ITEM"
+                                    ? "📦 Giao sai tựa sách"
+                                    : rr.reasonType === "DEFECTIVE"
+                                    ? "🖨️ Lỗi in ấn / thiếu trang"
+                                    : "⚠️ Sách bị hư hỏng / rách móp"}
+                                </span>
+                              </p>
+                              <p className="text-slate-600">
+                                <span className="font-semibold text-slate-800">Lý do từ khách:</span>{" "}
+                                <span className="italic text-slate-900 font-medium">"{rr.reason}"</span>
+                              </p>
+                            </div>
+
+                            <div className="space-y-1.5 md:border-l md:border-amber-100 md:pl-3">
+                              <p className="text-slate-600">
+                                <span className="font-semibold text-slate-800">Số tiền yêu cầu hoàn:</span>{" "}
+                                <strong className="text-rose-600 text-sm font-extrabold">{fmt(rr.refundAmount)}</strong>
+                              </p>
+                              <p className="text-slate-500 text-[11px]">
+                                <span className="font-semibold text-slate-700">Thời gian gửi:</span>{" "}
+                                {formatOrderDate(rr.createdAt)}
+                              </p>
+                              {rr.status === "PENDING" && (
+                                <p className="text-[11px] text-amber-800 flex items-center gap-1 font-medium bg-amber-50/80 p-1.5 rounded-lg border border-amber-200/60">
+                                  <Clock size={12} className="shrink-0 text-amber-600" />
+                                  <span>Phản hồi trong 48h để tránh chuyển khiếu nại lên Admin.</span>
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Gallery Ảnh Bằng Chứng Trực Quan */}
+                          {evidenceImages.length > 0 && (
+                            <div className="space-y-2 pt-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs text-slate-700 font-bold flex items-center gap-1.5">
+                                  <ImageIcon size={14} className="text-amber-700" />
+                                  Ảnh chụp bằng chứng lỗi từ khách ({evidenceImages.length} ảnh):
+                                </span>
+                                <span className="text-[11px] text-slate-500 italic">
+                                  (Click vào ảnh để phóng to)
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap gap-3">
+                                {evidenceImages.map((imgUrl, idx) => (
+                                  <div
+                                    key={idx}
+                                    onClick={() => setZoomImageSrc(imgUrl)}
+                                    className="group relative w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border-2 border-amber-300 shadow-xs cursor-pointer bg-slate-100 hover:border-amber-600 hover:shadow-md transition-all"
+                                    title="Click để phóng to xem chi tiết vết lỗi"
+                                  >
+                                    <img
+                                      src={imgUrl}
+                                      alt={`Ảnh bằng chứng ${idx + 1}`}
+                                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                                      loading="lazy"
+                                    />
+                                    <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center text-white transition-opacity gap-1">
+                                      <ZoomIn size={20} />
+                                      <span className="text-[10px] font-bold tracking-wide">Phóng to</span>
+                                    </div>
+                                    <span className="absolute bottom-1 right-1 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded-md backdrop-blur-xs font-mono">
+                                      #{idx + 1}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Phản hồi của Shop */}
+                          {rr.shopResponse && (
+                            <div className="p-3 bg-white/90 rounded-xl border border-slate-200 text-xs space-y-1">
+                              <span className="font-bold text-slate-700">Phản hồi của Shop:</span>
+                              <p className="text-slate-600 italic">"{rr.shopResponse}"</p>
+                            </div>
+                          )}
+
+                          {/* Nút thao tác Chấp nhận / Từ chối */}
+                          {rr.status === "PENDING" && (
+                            <div className="flex items-center gap-2.5 pt-2 border-t border-amber-200/80">
+                              <Btn
+                                size="sm"
+                                color="#047857"
+                                onClick={() => handleOpenProcessReturnModal(order, true)}
+                                className="shadow-xs font-bold"
+                              >
+                                <Check size={14} /> Chấp nhận hoàn tiền
+                              </Btn>
+                              <Btn
+                                size="sm"
+                                variant="outline"
+                                color="#dc2626"
+                                onClick={() => handleOpenProcessReturnModal(order, false)}
+                                className="shadow-xs font-bold"
+                              >
+                                <X size={14} /> Từ chối yêu cầu
+                              </Btn>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
                       <span className="text-xs text-slate-400">
@@ -4053,6 +4338,138 @@ export const ShopDashboardPage: React.FC = () => {
           </div>
         )}
       </Modal>
+
+      {/* Modal Xử Lý Đổi Trả & Hoàn Tiền của Shop */}
+      <Modal
+        isOpen={showProcessReturnModal}
+        onClose={() => {
+          if (!isSubmittingReturnProcess) {
+            setShowProcessReturnModal(false);
+            setSelectedReturnOrder(null);
+            setReturnProcessError(null);
+          }
+        }}
+        title={isApproveReturn ? "Chấp nhận yêu cầu đổi trả & Hoàn tiền" : "Từ chối yêu cầu đổi trả"}
+        maxWidth="max-w-md"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <Btn
+              variant="outline"
+              size="sm"
+              disabled={isSubmittingReturnProcess}
+              onClick={() => {
+                setShowProcessReturnModal(false);
+                setSelectedReturnOrder(null);
+              }}
+            >
+              Hủy
+            </Btn>
+            <Btn
+              size="sm"
+              color={isApproveReturn ? "#047857" : "#dc2626"}
+              disabled={isSubmittingReturnProcess}
+              onClick={handleConfirmProcessReturn}
+            >
+              {isSubmittingReturnProcess ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" /> Đang xử lý...
+                </>
+              ) : isApproveReturn ? (
+                <>
+                  <Check size={14} /> Xác nhận chấp nhận
+                </>
+              ) : (
+                <>
+                  <X size={14} /> Xác nhận từ chối
+                </>
+              )}
+            </Btn>
+          </div>
+        }
+      >
+        {selectedReturnOrder && (
+          <div className="space-y-4 text-xs">
+            {returnProcessError && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 font-medium">
+                {returnProcessError}
+              </div>
+            )}
+
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+              <p className="font-bold text-slate-800">
+                Đơn hàng #{formatOrderCode(selectedReturnOrder.id)} • {selectedReturnOrder.customerName}
+              </p>
+              <p className="text-slate-600">
+                Lý do khách gửi: <em>"{selectedReturnOrder.returnRequest?.reason}"</em>
+              </p>
+              <p className="text-slate-600">
+                Số tiền hoàn: <strong className="text-slate-900">{fmt(selectedReturnOrder.returnRequest?.refundAmount || 0)}</strong>
+              </p>
+            </div>
+
+            <p className="text-slate-600 leading-relaxed">
+              {isApproveReturn
+                ? "Sau khi bạn chấp nhận, hệ thống sẽ chuyển trạng thái sang Đang xử lý hoàn tiền (PROCESSING) và gửi thông báo tới khách hàng."
+                : "Nếu bạn từ chối, yêu cầu sẽ bị đóng lại. Khách hàng có quyền gửi khiếu nại lên Ban Quản Trị (Admin) nếu không đồng thuận."}
+            </p>
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1.5">
+                Phản hồi / Ghi chú của Shop gửi khách hàng:
+              </label>
+              <textarea
+                rows={3}
+                value={shopReturnNote}
+                onChange={(e) => setShopReturnNote(e.target.value)}
+                placeholder="Ví dụ: Shop đồng ý nhận lại sách và hoàn tiền / Sách không bị lỗi như mô tả..."
+                className="w-full border border-slate-200 rounded-xl p-2.5 bg-white text-xs text-slate-800 focus:outline-none focus:border-blue-500 resize-none"
+              />
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Lightbox Modal: Phóng to ảnh bằng chứng đổi trả */}
+      {zoomImageSrc && (
+        <div
+          onClick={() => setZoomImageSrc(null)}
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative max-w-4xl max-h-[90vh] bg-slate-900 rounded-2xl overflow-hidden shadow-2xl border border-slate-700 flex flex-col"
+          >
+            <div className="flex items-center justify-between px-4 py-3 bg-slate-950/80 border-b border-slate-800 text-white">
+              <span className="text-xs font-semibold flex items-center gap-1.5 text-slate-300">
+                <ImageIcon size={14} className="text-amber-400" /> Ảnh chụp bằng chứng lỗi từ khách hàng
+              </span>
+              <div className="flex items-center gap-2">
+                <a
+                  href={zoomImageSrc}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1 transition-colors"
+                >
+                  <ExternalLink size={12} /> Mở tab mới
+                </a>
+                <button
+                  onClick={() => setZoomImageSrc(null)}
+                  className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-rose-600 text-slate-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="p-2 overflow-auto flex items-center justify-center bg-slate-950/50">
+              <img
+                src={zoomImageSrc}
+                alt="Enlarged Evidence"
+                className="max-w-full max-h-[75vh] object-contain rounded-lg"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

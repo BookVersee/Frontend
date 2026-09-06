@@ -34,13 +34,8 @@ export const shopService = {
     try {
       const res = await apiClient.get<ApiResponse<any[]>>("/orders/GetUserOrders");
       const orders = res.data.data || [];
-      return orders.map((o: any) => ({
-        id: o.id,
-        customerId: o.userId,
-        customerName: o.userFullName,
-        customerPhone: "",
-        shopId: o.shopId || shopId || "",
-        items: (o.orderDetails || []).map((od: any, idx: number) => {
+      return orders.map((o: any) => {
+        const items = (o.orderDetails || []).map((od: any, idx: number) => {
           const colors = [
             { c1: "#1e3a8a", c2: "#3b82f6" },
             { c1: "#065f46", c2: "#10b981" },
@@ -49,7 +44,27 @@ export const shopService = {
             { c1: "#831843", c2: "#db2777" },
           ];
           const colorPair = colors[Math.abs(String(od.bookId || idx).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0)) % colors.length];
+          const itemReturnReq = od.returnRequest
+            ? {
+                id: od.returnRequest.id,
+                orderId: o.id,
+                orderDetailId: od.orderDetailId || od.id,
+                bookTitle: od.bookTitle,
+                reason: od.returnRequest.detailedReason || od.returnRequest.reason || "",
+                reasonType: od.returnRequest.reasonType,
+                detailedReason: od.returnRequest.detailedReason,
+                imageUrl: od.returnRequest.imageUrl,
+                evidenceImage: od.returnRequest.imageUrl,
+                refundAmount: od.returnRequest.refundAmount,
+                status: od.returnRequest.status,
+                createdAt: od.returnRequest.createdAt,
+                shopResponse: od.returnRequest.adminNote,
+                disputeStatus: (od.returnRequest.status === "PENDING" ? "OPEN" : "CLOSED") as any,
+              }
+            : undefined;
+
           return {
+            orderDetailId: od.orderDetailId || od.id,
             book: {
               id: od.bookId,
               title: od.bookTitle,
@@ -60,18 +75,60 @@ export const shopService = {
             },
             quantity: od.quantity,
             unitPrice: od.unitPrice,
+            returnStatus: od.returnStatus || (itemReturnReq ? "REQUESTED" : "NONE"),
+            returnRequest: itemReturnReq,
           };
-        }),
-        totalAmount: o.totalAmount,
-        shippingFee: 30000,
-        orderStatus: o.orderStatus as OrderStatus,
-        paymentStatus: o.orderStatus === "PAID" || o.orderStatus === "COMPLETED" ? "PAID" : "UNPAID",
-        paymentMethod: "COD",
-        shippingAddress: o.shippingAddress,
-        createdAt: o.createdAt,
-        updatedAt: o.createdAt,
-        note: o.note || "",
-      }));
+        });
+
+        const firstItemWithReq = (o.orderDetails || []).find((od: any) => od.returnRequest);
+        const firstReq = firstItemWithReq?.returnRequest;
+        const returnRequest = firstReq
+          ? {
+              id: firstReq.id,
+              orderId: o.id,
+              orderDetailId: firstReq.orderDetailId,
+              bookTitle: firstItemWithReq.bookTitle,
+              reason: firstReq.detailedReason || firstReq.reason || "",
+              reasonType: firstReq.reasonType,
+              detailedReason: firstReq.detailedReason,
+              status: firstReq.status,
+              refundAmount: firstReq.refundAmount,
+              createdAt: firstReq.createdAt,
+              evidenceImage: firstReq.imageUrl,
+              imageUrl: firstReq.imageUrl,
+              shopResponse: firstReq.adminNote,
+              disputeStatus: (firstReq.status === "PENDING" ? "OPEN" : "CLOSED") as any,
+            }
+          : undefined;
+
+        const firstDelivery = o.deliveries && o.deliveries.length > 0 ? o.deliveries[0] : undefined;
+
+        return {
+          id: o.id,
+          customerId: o.userId,
+          customerName: o.userFullName,
+          customerPhone: "",
+          shopId: o.shopId || shopId || "",
+          items,
+          totalAmount: o.totalAmount,
+          shippingFee: firstDelivery?.shipFee || 30000,
+          orderStatus: o.orderStatus as OrderStatus,
+          paymentStatus: o.orderStatus === "PAID" || o.orderStatus === "COMPLETED" ? "PAID" : "UNPAID",
+          paymentMethod: "COD",
+          shippingAddress: o.shippingAddress,
+          createdAt: o.createdAt,
+          updatedAt: o.createdAt,
+          note: o.note || "",
+          returnRequest,
+          tracking: firstDelivery
+            ? {
+                number: firstDelivery.trackingNumber,
+                carrier: firstDelivery.carrierName || "GHN",
+                status: firstDelivery.status,
+              }
+            : undefined,
+        };
+      });
     } catch (error) {
       console.warn("getShopOrders API error, falling back to mock:", error);
       return INITIAL_ORDERS.filter((o) => !shopId || String(o.shopId) === String(shopId));
@@ -86,13 +143,29 @@ export const shopService = {
       });
       const o = res.data.data;
       if (!o) return null;
-      return {
-        id: o.id,
-        customerId: o.userId,
-        customerName: o.userFullName,
-        customerPhone: "",
-        shopId: o.shopId,
-        items: (o.orderDetails || []).map((od: any) => ({
+
+      const items = (o.orderDetails || []).map((od: any) => {
+        const itemReturnReq = od.returnRequest
+          ? {
+              id: od.returnRequest.id,
+              orderId: o.id,
+              orderDetailId: od.orderDetailId || od.id,
+              bookTitle: od.bookTitle,
+              reason: od.returnRequest.detailedReason || od.returnRequest.reason || "",
+              reasonType: od.returnRequest.reasonType,
+              detailedReason: od.returnRequest.detailedReason,
+              imageUrl: od.returnRequest.imageUrl,
+              evidenceImage: od.returnRequest.imageUrl,
+              refundAmount: od.returnRequest.refundAmount,
+              status: od.returnRequest.status,
+              createdAt: od.returnRequest.createdAt,
+              shopResponse: od.returnRequest.adminNote,
+              disputeStatus: (od.returnRequest.status === "PENDING" ? "OPEN" : "CLOSED") as any,
+            }
+          : undefined;
+
+        return {
+          orderDetailId: od.orderDetailId || od.id,
           book: {
             id: od.bookId,
             title: od.bookTitle,
@@ -102,9 +175,43 @@ export const shopService = {
           },
           quantity: od.quantity,
           unitPrice: od.unitPrice,
-        })),
+          returnStatus: od.returnStatus || (itemReturnReq ? "REQUESTED" : "NONE"),
+          returnRequest: itemReturnReq,
+        };
+      });
+
+      const firstItemWithReq = (o.orderDetails || []).find((od: any) => od.returnRequest);
+      const firstReq = firstItemWithReq?.returnRequest;
+      const returnRequest = firstReq
+        ? {
+            id: firstReq.id,
+            orderId: o.id,
+            orderDetailId: firstReq.orderDetailId,
+            bookTitle: firstItemWithReq.bookTitle,
+            reason: firstReq.detailedReason || firstReq.reason || "",
+            reasonType: firstReq.reasonType,
+            detailedReason: firstReq.detailedReason,
+            status: firstReq.status,
+            refundAmount: firstReq.refundAmount,
+            createdAt: firstReq.createdAt,
+            evidenceImage: firstReq.imageUrl,
+            imageUrl: firstReq.imageUrl,
+            shopResponse: firstReq.adminNote,
+            disputeStatus: (firstReq.status === "PENDING" ? "OPEN" : "CLOSED") as any,
+          }
+        : undefined;
+
+      const firstDelivery = o.deliveries && o.deliveries.length > 0 ? o.deliveries[0] : undefined;
+
+      return {
+        id: o.id,
+        customerId: o.userId,
+        customerName: o.userFullName,
+        customerPhone: "",
+        shopId: o.shopId,
+        items,
         totalAmount: o.totalAmount,
-        shippingFee: 30000,
+        shippingFee: firstDelivery?.shipFee || 30000,
         orderStatus: o.orderStatus as OrderStatus,
         paymentStatus: o.orderStatus === "PAID" || o.orderStatus === "COMPLETED" ? "PAID" : "UNPAID",
         paymentMethod: "COD",
@@ -112,6 +219,14 @@ export const shopService = {
         createdAt: o.createdAt,
         updatedAt: o.createdAt,
         note: o.note || "",
+        returnRequest,
+        tracking: firstDelivery
+          ? {
+              number: firstDelivery.trackingNumber,
+              carrier: firstDelivery.carrierName || "GHN",
+              status: firstDelivery.status,
+            }
+          : undefined,
       };
     } catch (error) {
       console.warn("getShopOrderDetail API error, falling back to mock:", error);
@@ -423,14 +538,20 @@ export const shopService = {
   async processReturnRequest(returnRequestId: string | number, isAccepted: boolean, shopNote = ""): Promise<boolean> {
     try {
       await apiClient.post("/shop/ProcessReturnRequest", {
-        isAccepted,
-        shopNote: shopNote || (isAccepted ? "Đồng ý hoàn tiền" : "Từ chối hoàn tiền")
+        isApproved: isAccepted,
+        status: isAccepted ? "APPROVED" : "REJECTED",
+        adminNote: shopNote || (isAccepted ? "Đồng ý hoàn tiền" : "Từ chối hoàn tiền"),
+        rejectionReason: !isAccepted ? (shopNote || "Shop từ chối yêu cầu đổi trả") : undefined,
       }, {
         params: { returnRequestId }
       });
       return true;
-    } catch (error) {
+    } catch (error: any) {
       console.warn("processReturnRequest API error, falling back to mock:", error);
+      const msg = error?.response?.data?.message || "Không thể xử lý yêu cầu trả hàng.";
+      if (error?.response?.status === 400 || error?.response?.status === 403) {
+        throw new Error(msg);
+      }
       return true;
     }
   },

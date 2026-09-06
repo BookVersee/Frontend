@@ -24,6 +24,20 @@ export type DeliveryStatus =
 
 export type ReturnStatus = "PENDING" | "APPROVED" | "REJECTED";
 
+export type ReturnRequestReasonType = "WRONG_ITEM" | "DAMAGED" | "DEFECTIVE";
+
+export type BackendReturnStatus =
+  | "NONE"
+  | "REQUESTED"
+  | "PENDING"
+  | "REJECTED"
+  | "PROCESSING"
+  | "SHIPPED"
+  | "DELIVERED"
+  | "CANCELLED"
+  | "COMPLETED"
+  | "REFUNDED";
+
 export type DisputeLevel = "OPEN" | "PROCESSING" | "CLOSED";
 
 export type UserStatus = "ACTIVE" | "LOCKED";
@@ -99,6 +113,8 @@ export interface OrderItem {
   book: Book;
   quantity: number;
   unitPrice: number;
+  returnStatus?: BackendReturnStatus | string;
+  returnRequest?: ReturnRequest;
 }
 
 export interface OrderTracking {
@@ -137,12 +153,16 @@ export interface OrderFeedback {
 export interface ReturnRequest {
   id?: string | number;
   orderId?: string | number;
+  orderDetailId?: string;
+  bookTitle?: string;
+  bookImageUrl?: string;
   reason: string;
-  reasonType: string;
-  status: ReturnStatus;
+  reasonType: ReturnRequestReasonType | string;
+  status: ReturnStatus | string;
   refundAmount: number;
   createdAt: string;
   evidenceImage?: string;
+  imageUrl?: string;
   shopResponse?: string;
   disputeStatus?: DisputeLevel;
   adminResolutionNote?: string;

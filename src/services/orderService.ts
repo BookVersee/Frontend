@@ -22,6 +22,21 @@ export const orderService = {
             { c1: "#831843", c2: "#db2777" },
           ];
           const colorPair = colors[Math.abs(String(od.bookId || idx).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0)) % colors.length];
+          const itemReturnReq = od.returnRequest ? {
+            id: od.returnRequest.id,
+            orderId: o.id,
+            orderDetailId: od.orderDetailId || od.id,
+            bookTitle: od.bookTitle,
+            bookImageUrl: od.bookImage || od.imageUrl,
+            reason: od.returnRequest.detailedReason || "",
+            reasonType: od.returnRequest.reasonType,
+            status: od.returnRequest.status,
+            refundAmount: od.returnRequest.refundAmount || (od.unitPrice * od.quantity),
+            createdAt: od.returnRequest.createdAt,
+            evidenceImage: od.returnRequest.imageUrl,
+            imageUrl: od.returnRequest.imageUrl,
+          } : undefined;
+
           return {
             orderDetailId: od.orderDetailId || od.id,
             book: {
@@ -34,6 +49,8 @@ export const orderService = {
             },
             quantity: od.quantity,
             unitPrice: od.unitPrice,
+            returnStatus: od.returnStatus || "NONE",
+            returnRequest: itemReturnReq,
           };
         }),
         totalAmount: o.totalAmount,
@@ -45,6 +62,23 @@ export const orderService = {
         createdAt: o.createdAt,
         updatedAt: o.createdAt,
         note: o.note || "",
+        returnRequest: (() => {
+          const firstReq = (o.orderDetails || []).find((od: any) => od.returnRequest)?.returnRequest;
+          if (!firstReq) return undefined;
+          return {
+            id: firstReq.id,
+            orderId: o.id,
+            orderDetailId: firstReq.orderDetailId,
+            reason: firstReq.detailedReason || "",
+            reasonType: firstReq.reasonType,
+            status: firstReq.status,
+            refundAmount: firstReq.refundAmount,
+            createdAt: firstReq.createdAt,
+            evidenceImage: firstReq.imageUrl,
+            imageUrl: firstReq.imageUrl,
+            disputeStatus: (firstReq.status === "PENDING" ? "OPEN" : "CLOSED") as any,
+          };
+        })(),
       }));
 
       // Nếu có customerId, chỉ giữ lại các đơn do chính tài khoản này ĐÃ ĐẶT MUA (Tránh nhầm với các đơn bán của shop)
@@ -82,6 +116,21 @@ export const orderService = {
             { c1: "#831843", c2: "#db2777" },
           ];
           const colorPair = colors[Math.abs(String(od.bookId || idx).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0)) % colors.length];
+          const itemReturnReq = od.returnRequest ? {
+            id: od.returnRequest.id,
+            orderId: o.id,
+            orderDetailId: od.orderDetailId || od.id,
+            bookTitle: od.bookTitle,
+            bookImageUrl: od.bookImage || od.imageUrl,
+            reason: od.returnRequest.detailedReason || "",
+            reasonType: od.returnRequest.reasonType,
+            status: od.returnRequest.status,
+            refundAmount: od.returnRequest.refundAmount || (od.unitPrice * od.quantity),
+            createdAt: od.returnRequest.createdAt,
+            evidenceImage: od.returnRequest.imageUrl,
+            imageUrl: od.returnRequest.imageUrl,
+          } : undefined;
+
           return {
             orderDetailId: od.orderDetailId || od.id,
             book: {
@@ -94,6 +143,8 @@ export const orderService = {
             },
             quantity: od.quantity,
             unitPrice: od.unitPrice,
+            returnStatus: od.returnStatus || "NONE",
+            returnRequest: itemReturnReq,
           };
         }),
         totalAmount: o.totalAmount,
@@ -105,14 +156,23 @@ export const orderService = {
         createdAt: o.createdAt,
         updatedAt: o.createdAt,
         note: o.note || "",
-        returnRequest: o.orderDetails[0]?.returnRequest ? {
-          id: o.orderDetails[0].returnRequest.id,
-          reason: o.orderDetails[0].returnRequest.detailedReason || "",
-          reasonType: o.orderDetails[0].returnRequest.reasonType,
-          status: o.orderDetails[0].returnRequest.status,
-          refundAmount: o.orderDetails[0].returnRequest.refundAmount,
-          createdAt: o.orderDetails[0].returnRequest.createdAt,
-        } : undefined
+        returnRequest: (() => {
+          const firstReq = (o.orderDetails || []).find((od: any) => od.returnRequest)?.returnRequest;
+          if (!firstReq) return undefined;
+          return {
+            id: firstReq.id,
+            orderId: o.id,
+            orderDetailId: firstReq.orderDetailId,
+            reason: firstReq.detailedReason || "",
+            reasonType: firstReq.reasonType,
+            status: firstReq.status,
+            refundAmount: firstReq.refundAmount,
+            createdAt: firstReq.createdAt,
+            evidenceImage: firstReq.imageUrl,
+            imageUrl: firstReq.imageUrl,
+            disputeStatus: (firstReq.status === "PENDING" ? "OPEN" : "CLOSED") as any,
+          };
+        })(),
       };
     } catch (error) {
       console.warn("getOrderById API error, falling back to mock:", error);
@@ -299,41 +359,109 @@ export const orderService = {
     }
   },
 
-  async requestReturn(orderId: string | number, reason: string, reasonType = "DAMAGED", evidenceImage?: string): Promise<boolean> {
-    try {
-      // 1. Lấy chi tiết đơn hàng để có orderDetailId cần trả hàng
-      const detailRes = await apiClient.get<ApiResponse<any>>(`/orders/GetOrderDetail`, {
-        params: { id: orderId }
-      });
-      const orderDetailId = detailRes.data.data.orderDetails[0]?.orderDetailId;
-      if (!orderDetailId) throw new Error("No items in order to return.");
+  async requestReturn(
+    orderIdOrParams:
+      | string
+      | number
+      | {
+          orderId: string | number;
+          orderDetailId?: string;
+          reason: string;
+          reasonType?: string;
+          evidenceImage?: string;
+          refundAmount?: number;
+        },
+    reasonParam?: string,
+    reasonTypeParam = "DAMAGED",
+    evidenceImageParam?: string,
+    refundAmountParam?: number
+  ): Promise<boolean> {
+    let orderId: string | number;
+    let orderDetailId: string | undefined;
+    let reason: string;
+    let reasonType = "DAMAGED";
+    let evidenceImage: string | undefined;
+    let refundAmount: number | undefined;
 
-      // 2. Gửi yêu cầu hoàn tiền cho item đầu tiên của đơn hàng
-      await apiClient.post(`/orders/SendRequestReturn`, {
-        reasonType: reasonType,
-        detailedReason: reason,
-        imageUrl: evidenceImage || "",
-        refundAmount: detailRes.data.data.totalAmount,
-      }, {
-        params: { orderDetailId }
-      });
+    if (typeof orderIdOrParams === "object" && orderIdOrParams !== null) {
+      orderId = orderIdOrParams.orderId;
+      orderDetailId = orderIdOrParams.orderDetailId;
+      reason = orderIdOrParams.reason;
+      reasonType = orderIdOrParams.reasonType || "DAMAGED";
+      evidenceImage = orderIdOrParams.evidenceImage;
+      refundAmount = orderIdOrParams.refundAmount;
+    } else {
+      orderId = orderIdOrParams;
+      reason = reasonParam || "";
+      reasonType = reasonTypeParam || "DAMAGED";
+      evidenceImage = evidenceImageParam;
+      refundAmount = refundAmountParam;
+    }
+
+    try {
+      // 1. Nếu chưa có orderDetailId, truy vấn chi tiết đơn hàng để lấy id item đầu tiên
+      if (!orderDetailId) {
+        const detailRes = await apiClient.get<ApiResponse<any>>(`/orders/GetOrderDetail`, {
+          params: { id: orderId }
+        });
+        orderDetailId = detailRes.data?.data?.orderDetails?.[0]?.orderDetailId || detailRes.data?.data?.orderDetails?.[0]?.id;
+      }
+
+      if (!orderDetailId) {
+        throw new Error("Không tìm thấy sản phẩm trong đơn hàng để gửi yêu cầu trả hàng.");
+      }
+
+      // 2. Gửi yêu cầu hoàn tiền cho đúng orderDetailId
+      await apiClient.post(
+        `/orders/SendRequestReturn`,
+        {
+          reasonType,
+          detailedReason: reason,
+          imageUrl: evidenceImage || "",
+          refundAmount: refundAmount && refundAmount > 0 ? refundAmount : 0,
+        },
+        {
+          params: { orderDetailId }
+        }
+      );
       return true;
-    } catch (error) {
+    } catch (error: any) {
       console.warn("requestReturn API error, falling back to mock:", error);
+      const serverMsg = error?.response?.data?.message;
+      if (error?.response?.status === 400 || error?.response?.status === 403) {
+        throw new Error(serverMsg || "Không thể gửi yêu cầu trả hàng.");
+      }
       const order = INITIAL_ORDERS.find((o) => String(o.id) === String(orderId));
       if (order) {
         order.returnRequest = {
           orderId: order.id as any,
+          orderDetailId,
           reason,
           reasonType,
           status: "PENDING",
           disputeStatus: "OPEN",
-          refundAmount: order.totalAmount,
+          refundAmount: refundAmount || order.totalAmount,
           createdAt: new Date().toISOString().split("T")[0],
           evidenceImage: evidenceImage || "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=400",
         };
       }
       return true;
+    }
+  },
+
+  async escalateDispute(returnRequestId: string | number, reason: string): Promise<boolean> {
+    try {
+      await apiClient.post(`/orders/EscalateDispute`, null, {
+        params: {
+          returnRequestId,
+          reason: reason.trim(),
+        },
+      });
+      return true;
+    } catch (error: any) {
+      console.error("escalateDispute API error:", error);
+      const msg = error?.response?.data?.message || error?.message || "Không thể gửi khiếu nại lên Ban Quản Trị.";
+      throw new Error(msg);
     }
   },
 };

@@ -437,39 +437,44 @@ export const adminService = {
   async getDisputes(status?: ReturnStatus): Promise<Order[]> {
     try {
       const res = await apiClient.get<ApiResponse<any[]>>("/admin/GetDisputes", {
-        params: { status },
+        params: status ? { status } : undefined,
       });
       const disputes = res.data.data || [];
-      return disputes.map((d: any) => ({
-        id: d.orderId || d.id,
-        customerId: d.userId,
-        customerName: d.userFullName || "Khách hàng",
-        customerPhone: d.phone || "",
-        shopId: d.shopId,
-        shopName: d.shopName || `Shop #${d.shopId}`,
-        items: [],
-        totalAmount: d.refundAmount || 0,
-        shippingFee: 0,
-        orderStatus: "RETURNED",
-        paymentStatus: "REFUNDED",
-        paymentMethod: "ONLINE",
-        shippingAddress: "",
-        createdAt: d.createdAt,
-        updatedAt: d.createdAt,
-        returnRequest: {
-          id: d.id,
-          orderId: d.orderId,
-          reason: d.detailedReason || d.reason || "Sách bị lỗi in ấn, rách trang.",
-          reasonType: d.reasonType || "DAMAGED",
-          status: d.status || "PENDING",
-          refundAmount: d.refundAmount || 250000,
-          createdAt: d.createdAt || "Hôm nay",
-          evidenceImage: d.imageUrl || "https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=400",
-          shopResponse: d.shopResponse || "Shop đã kiểm tra trước khi gửi, có thể do bên vận chuyển.",
-          adminResolutionNote: d.adminResolutionNote,
-          disputeStatus: d.status === "PENDING" ? "OPEN" : "CLOSED",
-        },
-      }));
+      return disputes.map((d: any) => {
+        const returnReqId = d.returnRequestId || d.id;
+        return {
+          id: d.orderId || returnReqId,
+          customerId: d.userId || "",
+          customerName: d.customerName || d.userFullName || "Khách hàng",
+          customerPhone: d.phone || "",
+          shopId: d.shopId || "",
+          shopName: d.shopName || "Shop BookVerse",
+          items: [],
+          totalAmount: d.refundAmount || 0,
+          shippingFee: 0,
+          orderStatus: "RETURNED",
+          paymentStatus: "REFUNDED",
+          paymentMethod: "ONLINE",
+          shippingAddress: "",
+          createdAt: d.createdAt,
+          updatedAt: d.createdAt,
+          returnRequest: {
+            id: returnReqId,
+            orderId: d.orderId,
+            orderDetailId: d.orderDetailId,
+            reason: d.detailedReason || d.reason || "Sách bị lỗi in ấn, rách trang.",
+            reasonType: d.reasonType || "DAMAGED",
+            status: d.status || "PENDING",
+            refundAmount: d.refundAmount || 0,
+            createdAt: d.createdAt || "Hôm nay",
+            evidenceImage: d.evidenceImageUrl || d.imageUrl || "https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=400",
+            imageUrl: d.evidenceImageUrl || d.imageUrl,
+            shopResponse: d.shopResponse || "Shop đã kiểm tra trước khi gửi, có thể do bên vận chuyển.",
+            adminResolutionNote: d.adminResolutionNote,
+            disputeStatus: d.status === "PENDING" ? "OPEN" : "CLOSED",
+          },
+        };
+      });
     } catch (error) {
       console.warn("getDisputes API error, falling back to mock:", error);
       return INITIAL_ORDERS.filter((o) => o.returnRequest);
@@ -483,23 +488,30 @@ export const adminService = {
     adminResolutionNote = ""
   ): Promise<boolean> {
     try {
+      const isApproved = status === "APPROVED";
+      const resolutionNote =
+        adminResolutionNote ||
+        (isApproved
+          ? "Admin xác nhận lỗi từ Shop, đồng ý hoàn 100% tiền đơn hàng cho khách."
+          : "Từ chối khiếu nại do không đủ bằng chứng hư hại.");
+
       await apiClient.post(
         "/admin/ResolveDispute",
         {
-          isAccepted: status === "APPROVED",
-          adminResolutionNote:
-            adminResolutionNote ||
-            (status === "APPROVED"
-              ? "Admin xác nhận lỗi từ Shop, đồng ý hoàn 100% tiền đơn hàng cho khách."
-              : "Từ chối khiếu nại do không đủ bằng chứng hư hại."),
+          approveRefund: isApproved,
+          adminResolutionNote: resolutionNote,
         },
         {
-          params: { id: disputeId },
+          params: { disputeId },
         }
       );
       return true;
-    } catch (error) {
+    } catch (error: any) {
       console.warn("handleReturnRequest API error, falling back to mock:", error);
+      const msg = error?.response?.data?.message || "Không thể xử lý phán quyết khiếu nại.";
+      if (error?.response?.status === 400 || error?.response?.status === 403) {
+        throw new Error(msg);
+      }
       return true;
     }
   },
