@@ -2,19 +2,21 @@ import React, { useEffect } from "react";
 import { X } from "lucide-react";
 
 interface ModalProps {
-  isOpen: boolean;
+  isOpen?: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
   maxWidth?: string;
+  footer?: React.ReactNode;
 }
 
 export const Modal: React.FC<ModalProps> = ({
-  isOpen,
+  isOpen = true,
   onClose,
   title,
   children,
   maxWidth = "max-w-md",
+  footer,
 }) => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -51,6 +53,11 @@ export const Modal: React.FC<ModalProps> = ({
           </button>
         </div>
         <div className="p-6 max-h-[85vh] overflow-y-auto">{children}</div>
+        {footer && (
+          <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-100">
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );

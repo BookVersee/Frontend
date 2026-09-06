@@ -119,23 +119,30 @@ export const shopService = {
     }
   },
 
-  // 4. Cập nhật trạng thái đơn hàng (PROCESSING, SHIPPED, DELIVERED, CANCELLED)
-  async updateOrderStatus(orderId: string | number, status: OrderStatus, notes = ""): Promise<boolean> {
+  // 4. Cập nhật trạng thái đơn hàng (PROCESSING, SHIPPING, DELIVERED, CANCELLED)
+  async updateOrderStatus(
+    orderId: string | number,
+    status: OrderStatus,
+    notes = "",
+    weight?: number,
+    reason?: string
+  ): Promise<boolean> {
+    const backendStatus = status === "SHIPPED" ? "SHIPPING" : status;
     try {
       await apiClient.post("/shop/UpdateOrderStatus", {
-        newStatus: status,
-        notes: notes || `Cập nhật trạng thái sang ${status}`
+        newStatus: backendStatus,
+        orderStatus: backendStatus,
+        weight: weight && weight > 0 ? weight : undefined,
+        note: notes || `Cập nhật trạng thái sang ${backendStatus}`,
+        reason: reason || undefined,
       }, {
         params: { orderId }
       });
       return true;
-    } catch (error) {
-      console.warn("updateOrderStatus API error, falling back to mock:", error);
-      const order = INITIAL_ORDERS.find((o) => String(o.id) === String(orderId));
-      if (order) {
-        order.orderStatus = status;
-      }
-      return true;
+    } catch (error: any) {
+      const errorMsg = error?.response?.data?.message || error?.response?.data?.errors?.detail || error.message;
+      console.error("updateOrderStatus API error:", errorMsg);
+      throw new Error(errorMsg || "Không thể cập nhật trạng thái đơn hàng.");
     }
   },
 

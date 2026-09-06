@@ -572,7 +572,11 @@ export const AdminDashboardPage: React.FC = () => {
         String(o.id).includes(searchOrder) ||
         o.customerName.toLowerCase().includes(searchOrder.toLowerCase()) ||
         (o.shopName && o.shopName.toLowerCase().includes(searchOrder.toLowerCase()));
-      const matchStatus = filterOrderStatus === "ALL" || o.orderStatus === filterOrderStatus;
+      const matchStatus =
+        filterOrderStatus === "ALL" ||
+        (filterOrderStatus === "SHIPPED"
+          ? o.orderStatus === "SHIPPED" || o.orderStatus === "SHIPPING" || o.orderStatus === "DELIVERING"
+          : o.orderStatus === filterOrderStatus);
       const matchPayment = filterOrderPayment === "ALL" || o.paymentMethod === filterOrderPayment;
       return matchSearch && matchStatus && matchPayment;
     });
@@ -834,7 +838,11 @@ export const AdminDashboardPage: React.FC = () => {
                     <div className="space-y-3">
                       {(["PENDING", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "RETURNED"] as const).map(
                         (st) => {
-                          const count = orders.filter((o) => o.orderStatus === st).length;
+                          const count = orders.filter((o) =>
+                            st === "SHIPPED"
+                              ? o.orderStatus === "SHIPPED" || o.orderStatus === "SHIPPING" || o.orderStatus === "DELIVERING"
+                              : o.orderStatus === st
+                          ).length;
                           const si = orderStatusInfo(st);
                           const percent = orders.length > 0 ? (count / orders.length) * 100 : 0;
                           return (
