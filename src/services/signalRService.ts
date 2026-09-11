@@ -13,25 +13,33 @@ import {
 } from "../types";
 
 // Helper chuẩn hóa URL cho SignalR Client (SignalR builder bắt buộc dùng HTTP/HTTPS để handshake negotiate)
-const normalizeHubUrl = (url: string) => {
-  if (!url) return "";
+const normalizeHubUrl = (url: string, defaultPath: string) => {
+  if (!url) return defaultPath;
+  // Nếu đang mở trang web trên HTTPS (Cloudflare Tunnel, domain ngoài) hoặc cấu hình trỏ trực tiếp localhost:5226,
+  // thì ưu tiên đi qua Vite Proxy (relative path) để tránh lỗi Mixed Content & CORS
+  if (
+    typeof window !== "undefined" &&
+    (window.location.protocol === "https:" || window.location.hostname !== "localhost" || url.includes("localhost:5226"))
+  ) {
+    return defaultPath;
+  }
   if (url.startsWith("ws://")) return url.replace("ws://", "http://");
   if (url.startsWith("wss://")) return url.replace("wss://", "https://");
   return url;
 };
 
-// Base URLs cho các SignalR Hubs
-const BACKEND_URL =
-  import.meta.env.VITE_BACKEND_URL || "http://localhost:5226";
-
+// Base URLs cho các SignalR Hubs (Ưu tiên relative path qua Vite Proxy để thông suốt cả trên localhost lẫn Cloudflare Tunnel)
 const CHAT_HUB_URL = normalizeHubUrl(
-  import.meta.env.VITE_WS_CHAT_URL || `${BACKEND_URL}/hubs/chat`
+  import.meta.env.VITE_WS_CHAT_URL || "/hubs/chat",
+  "/hubs/chat"
 );
 const NOTIFICATION_HUB_URL = normalizeHubUrl(
-  import.meta.env.VITE_WS_NOTIF_URL || `${BACKEND_URL}/hubs/notifications`
+  import.meta.env.VITE_WS_NOTIF_URL || "/hubs/notifications",
+  "/hubs/notifications"
 );
 const APP_HUB_URL = normalizeHubUrl(
-  import.meta.env.VITE_WS_APP_URL || `${BACKEND_URL}/hubs/app`
+  import.meta.env.VITE_WS_APP_URL || "/hubs/app",
+  "/hubs/app"
 );
 
 // Web Audio API Synthesizer tạo tiếng chuông thông báo trong trẻo, không phụ thuộc file mp3 ngoài
