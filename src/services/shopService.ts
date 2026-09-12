@@ -101,7 +101,48 @@ export const shopService = {
             }
           : undefined;
 
-        const firstDelivery = o.deliveries && o.deliveries.length > 0 ? o.deliveries[0] : undefined;
+        const rawDeliveries = (o.deliveries || []).map((d: any) => ({
+          id: d.id,
+          orderId: d.orderId,
+          trackingNumber: d.trackingNumber,
+          carrierName: d.carrierName,
+          shipFee: d.shipFee,
+          status: d.status,
+          estimatedDelivery: d.estimatedDelivery,
+          actualDeliveredAt: d.actualDeliveredAt,
+        }));
+
+        const forwardDelivery =
+          rawDeliveries.find(
+            (d: any) =>
+              d.carrierName !== "GHN_RETURN" &&
+              (!d.trackingNumber || !d.trackingNumber.startsWith("GHN_RET"))
+          ) || rawDeliveries[0];
+
+        const foundReturnDelivery = rawDeliveries.find(
+          (d: any) =>
+            d.carrierName === "GHN_RETURN" ||
+            (d.trackingNumber && d.trackingNumber.startsWith("GHN_RET"))
+        );
+
+        const returnDelivery = foundReturnDelivery
+          ? {
+              id: foundReturnDelivery.id,
+              orderId: foundReturnDelivery.orderId,
+              trackingNumber: foundReturnDelivery.trackingNumber,
+              carrierName: foundReturnDelivery.carrierName || "GHN_RETURN",
+              shipFee: foundReturnDelivery.shipFee,
+              status: foundReturnDelivery.status || "PENDING",
+              estimatedDelivery: foundReturnDelivery.estimatedDelivery,
+              actualDeliveredAt: foundReturnDelivery.actualDeliveredAt,
+            }
+          : undefined;
+
+        // Gắn returnDelivery vào item nếu có returnRequest
+        const itemsWithReturnDelivery = items.map((it: any) => ({
+          ...it,
+          returnDelivery: it.returnRequest ? returnDelivery : undefined,
+        }));
 
         return {
           id: o.id,
@@ -109,9 +150,9 @@ export const shopService = {
           customerName: o.userFullName,
           customerPhone: "",
           shopId: o.shopId || shopId || "",
-          items,
+          items: itemsWithReturnDelivery,
           totalAmount: o.totalAmount,
-          shippingFee: firstDelivery?.shipFee || 30000,
+          shippingFee: forwardDelivery?.shipFee || 30000,
           orderStatus: o.orderStatus as OrderStatus,
           paymentStatus: o.orderStatus === "PAID" || o.orderStatus === "COMPLETED" ? "PAID" : "UNPAID",
           paymentMethod: "COD",
@@ -120,11 +161,13 @@ export const shopService = {
           updatedAt: o.createdAt,
           note: o.note || "",
           returnRequest,
-          tracking: firstDelivery
+          returnDelivery,
+          deliveries: rawDeliveries,
+          tracking: forwardDelivery
             ? {
-                number: firstDelivery.trackingNumber,
-                carrier: firstDelivery.carrierName || "GHN",
-                status: firstDelivery.status,
+                number: forwardDelivery.trackingNumber,
+                carrier: forwardDelivery.carrierName || "GHN",
+                status: forwardDelivery.status,
               }
             : undefined,
         };
@@ -201,7 +244,47 @@ export const shopService = {
           }
         : undefined;
 
-      const firstDelivery = o.deliveries && o.deliveries.length > 0 ? o.deliveries[0] : undefined;
+      const rawDeliveries = (o.deliveries || []).map((d: any) => ({
+        id: d.id,
+        orderId: d.orderId,
+        trackingNumber: d.trackingNumber,
+        carrierName: d.carrierName,
+        shipFee: d.shipFee,
+        status: d.status,
+        estimatedDelivery: d.estimatedDelivery,
+        actualDeliveredAt: d.actualDeliveredAt,
+      }));
+
+      const forwardDelivery =
+        rawDeliveries.find(
+          (d: any) =>
+            d.carrierName !== "GHN_RETURN" &&
+            (!d.trackingNumber || !d.trackingNumber.startsWith("GHN_RET"))
+        ) || rawDeliveries[0];
+
+      const foundReturnDelivery = rawDeliveries.find(
+        (d: any) =>
+          d.carrierName === "GHN_RETURN" ||
+          (d.trackingNumber && d.trackingNumber.startsWith("GHN_RET"))
+      );
+
+      const returnDelivery = foundReturnDelivery
+        ? {
+            id: foundReturnDelivery.id,
+            orderId: foundReturnDelivery.orderId,
+            trackingNumber: foundReturnDelivery.trackingNumber,
+            carrierName: foundReturnDelivery.carrierName || "GHN_RETURN",
+            shipFee: foundReturnDelivery.shipFee,
+            status: foundReturnDelivery.status || "PENDING",
+            estimatedDelivery: foundReturnDelivery.estimatedDelivery,
+            actualDeliveredAt: foundReturnDelivery.actualDeliveredAt,
+          }
+        : undefined;
+
+      const itemsWithReturnDelivery = items.map((it: any) => ({
+        ...it,
+        returnDelivery: it.returnRequest ? returnDelivery : undefined,
+      }));
 
       return {
         id: o.id,
@@ -209,9 +292,9 @@ export const shopService = {
         customerName: o.userFullName,
         customerPhone: "",
         shopId: o.shopId,
-        items,
+        items: itemsWithReturnDelivery,
         totalAmount: o.totalAmount,
-        shippingFee: firstDelivery?.shipFee || 30000,
+        shippingFee: forwardDelivery?.shipFee || 30000,
         orderStatus: o.orderStatus as OrderStatus,
         paymentStatus: o.orderStatus === "PAID" || o.orderStatus === "COMPLETED" ? "PAID" : "UNPAID",
         paymentMethod: "COD",
@@ -220,11 +303,13 @@ export const shopService = {
         updatedAt: o.createdAt,
         note: o.note || "",
         returnRequest,
-        tracking: firstDelivery
+        returnDelivery,
+        deliveries: rawDeliveries,
+        tracking: forwardDelivery
           ? {
-              number: firstDelivery.trackingNumber,
-              carrier: firstDelivery.carrierName || "GHN",
-              status: firstDelivery.status,
+              number: forwardDelivery.trackingNumber,
+              carrier: forwardDelivery.carrierName || "GHN",
+              status: forwardDelivery.status,
             }
           : undefined,
       };

@@ -56,6 +56,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
       setToken(null);
       setRole("customer");
+      try {
+        localStorage.removeItem("bookverse_chat_messages");
+      } catch (e) {
+        // ignore
+      }
     };
     window.addEventListener("auth:session-expired", handleSessionExpired);
     return () => {
@@ -129,6 +134,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
       setToken(null);
       setRole("customer");
+      try {
+        localStorage.removeItem("bookverse_chat_messages");
+      } catch (e) {
+        // ignore
+      }
     }
   };
 

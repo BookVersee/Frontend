@@ -22,6 +22,8 @@ import {
   CheckCircle,
   CreditCard,
   Copy,
+  ExternalLink,
+  Box,
 } from "lucide-react";
 import { Order, DeliveryStatus, ReturnRequestReasonType, OrderItem } from "../../types";
 import { orderStatusInfo } from "../../utils/status";
@@ -56,6 +58,13 @@ export const OrderDetailPage: React.FC<OrderDetailPageProps> = ({
   const [reviewed, setReviewed] = useState(!!order.feedback);
   const [realtimeUpdateBanner, setRealtimeUpdateBanner] = useState<string | null>(null);
   const [copiedBankTemplate, setCopiedBankTemplate] = useState(false);
+  const [copiedReturnTracking, setCopiedReturnTracking] = useState(false);
+
+  const handleCopyReturnTracking = (trackingNum: string) => {
+    navigator.clipboard.writeText(trackingNum);
+    setCopiedReturnTracking(true);
+    setTimeout(() => setCopiedReturnTracking(false), 2500);
+  };
 
   const handleCopyBankTemplate = () => {
     const bookTitle = order?.returnRequest?.bookTitle || order?.items[0]?.book?.title || "Sản phẩm";
@@ -752,9 +761,9 @@ Cảm ơn Shop hỗ trợ!`;
             </div>
           )}
 
-          {/* Shop Approved Return Notice: Hướng dẫn khách hàng cung cấp STK */}
+          {/* Shop Approved Return Notice: Vận đơn thu hồi GHN Sandbox & Hướng dẫn trả hàng */}
           {order.returnRequest.status === "APPROVED" && (
-            <div className="p-4.5 bg-gradient-to-br from-emerald-50 via-teal-50/50 to-emerald-50 rounded-2xl border-2 border-emerald-300/90 shadow-xs space-y-3.5">
+            <div className="p-4.5 bg-gradient-to-br from-emerald-50 via-teal-50/40 to-emerald-50 rounded-2xl border-2 border-emerald-300/90 shadow-xs space-y-4">
               <div className="flex items-start gap-3">
                 <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
                   <CheckCircle size={20} />
@@ -769,23 +778,118 @@ Cảm ơn Shop hỗ trợ!`;
                 </div>
               </div>
 
-              {/* Hướng dẫn từng bước */}
+              {/* CARD VẬN ĐƠN THU HỒI GHN EXPRESS */}
+              {order.returnDelivery ? (
+                <div className="bg-white rounded-xl p-4 border border-orange-200/90 shadow-2xs space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-1 rounded-lg bg-orange-600 text-white text-[11px] font-black tracking-wide flex items-center gap-1 shadow-2xs">
+                        <Truck size={13} /> GHN EXPRESS
+                      </span>
+                      <span className="text-xs font-bold text-slate-800">
+                        Vận đơn thu hồi sách về Shop
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-mono font-bold text-orange-950 bg-orange-50 px-2.5 py-1 rounded-lg border border-orange-200">
+                        {order.returnDelivery.trackingNumber}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyReturnTracking(order.returnDelivery!.trackingNumber)}
+                        className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-all cursor-pointer"
+                        title="Sao chép mã vận đơn"
+                      >
+                        <Copy size={13} className={copiedReturnTracking ? "text-emerald-600" : ""} />
+                      </button>
+                      <a
+                        href="https://dev-online-gateway.ghn.vn/"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] font-semibold text-orange-600 hover:text-orange-700 flex items-center gap-0.5 ml-1"
+                      >
+                        Tra cứu <ExternalLink size={11} />
+                      </a>
+                    </div>
+                  </div>
+
+                  {/* Tiến trình 3 bước thu hồi */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs pt-1">
+                    <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-start gap-2">
+                      <div className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-bold">1</div>
+                      <div>
+                        <p className="font-bold text-emerald-950">Đã duyệt yêu cầu</p>
+                        <p className="text-[11px] text-emerald-800">Shop đồng ý nhận lại sách.</p>
+                      </div>
+                    </div>
+
+                    <div className={`p-2.5 rounded-xl border flex items-start gap-2 ${
+                      order.returnDelivery.status === "TRANSIT" || order.returnDelivery.status === "DELIVERED"
+                        ? "bg-emerald-50 border-emerald-200"
+                        : "bg-orange-50 border-orange-200"
+                    }`}>
+                      <div className={`w-5 h-5 rounded-full text-white flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-bold ${
+                        order.returnDelivery.status === "TRANSIT" || order.returnDelivery.status === "DELIVERED"
+                          ? "bg-emerald-600"
+                          : "bg-orange-600 animate-pulse"
+                      }`}>2</div>
+                      <div>
+                        <p className="font-bold text-slate-900">Shipper GHN lấy hàng</p>
+                        <p className="text-[11px] text-slate-600">
+                          {order.returnDelivery.status === "TRANSIT"
+                            ? "Đang chuyển về kho Shop"
+                            : "Shipper sẽ gọi SĐT bạn để lấy sách tại nhà."}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className={`p-2.5 rounded-xl border flex items-start gap-2 ${
+                      order.returnDelivery.status === "DELIVERED"
+                        ? "bg-emerald-50 border-emerald-200"
+                        : "bg-slate-50 border-slate-200"
+                    }`}>
+                      <div className={`w-5 h-5 rounded-full text-white flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-bold ${
+                        order.returnDelivery.status === "DELIVERED" ? "bg-emerald-600" : "bg-slate-400"
+                      }`}>3</div>
+                      <div>
+                        <p className="font-bold text-slate-900">Hoàn tiền tự động</p>
+                        <p className="text-[11px] text-slate-600">
+                          {order.returnDelivery.status === "DELIVERED"
+                            ? "Shop đã nhận lại sách & tiền đã hoàn về ví!"
+                            : "Shop nhận lại sách sẽ hoàn tất hoàn tiền."}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-amber-50/80 rounded-xl p-3 border border-amber-200 text-xs text-amber-900 space-y-1">
+                    <p className="font-bold flex items-center gap-1.5">
+                      <Box size={14} className="text-amber-700" /> Hướng dẫn bạn đóng gói bàn giao sách:
+                    </p>
+                    <p className="text-[11px] text-amber-800 leading-relaxed pl-5">
+                      • Bạn vui lòng bọc sách trong bọc nilon hoặc hộp carton gọn gàng.<br />
+                      • Ghi rõ mã vận đơn <strong>{order.returnDelivery.trackingNumber}</strong> lên mặt ngoài gói hàng để Shipper GHN dán tem đối soát.<br />
+                      • <strong>Cước thu hồi miễn phí</strong>: Shop chi trả toàn bộ cước phí thu gom cho GHN.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-white rounded-xl p-3.5 border border-slate-200 text-xs text-slate-600 flex items-center gap-2">
+                  <Loader2 size={16} className="animate-spin text-orange-600" />
+                  <span>Hệ thống đang đồng bộ phát hành mã vận đơn thu hồi qua GHN Express Sandbox...</span>
+                </div>
+              )}
+
+              {/* Hướng dẫn nhận tiền & chat với shop */}
               <div className="bg-white/95 rounded-xl p-3.5 border border-emerald-200/80 text-xs space-y-2">
                 <div className="flex items-center gap-1.5 font-bold text-slate-800">
                   <CreditCard size={15} className="text-emerald-600" />
-                  <span>Hướng dẫn nhận lại tiền hoàn từ Shop:</span>
+                  <span>Nhận tiền hoàn từ Shop:</span>
                 </div>
-                <ol className="list-decimal list-inside space-y-1.5 text-slate-600 pl-1 leading-relaxed">
-                  <li>
-                    Bạn hãy <strong>chủ động nhắn tin cho Cửa hàng ({order.shopName || "Shop"})</strong> qua hệ thống Chat BookVerse.
-                  </li>
-                  <li>
-                    Gửi thông tin tài khoản ngân hàng của bạn gồm: <strong>Tên ngân hàng, Số tài khoản (STK)</strong> và <strong>Họ tên chủ tài khoản</strong>.
-                  </li>
-                  <li>
-                    Shop sẽ tiến hành chuyển khoản hoàn tiền trực tiếp cho bạn sau khi nhận được thông tin.
-                  </li>
-                </ol>
+                <p className="text-slate-600 text-xs leading-relaxed">
+                  Khi gói hàng thu hồi được giao hoàn về kho Shop, hệ thống sẽ tự động hoàn tiền vào số dư ví của bạn. Ngoài ra bạn có thể chủ động nhắn tin STK cho Shop nếu cần chuyển khoản trực tiếp.
+                </p>
               </div>
 
               {/* Nút Copy mẫu STK & Nút Nhắn tin cho Shop */}

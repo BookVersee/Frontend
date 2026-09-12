@@ -24,19 +24,23 @@ import { fmt } from "../../utils/format";
 import { bookService } from "../../services/bookService";
 import { feedbackService } from "../../services/feedbackService";
 import { useCart } from "../../contexts/CartContext";
+import { useAuth } from "../../contexts/AuthContext";
 import { ChatDrawer } from "../../components/chat/ChatDrawer";
 
 interface BookDetailPageProps {
   book: Book;
   onBack: () => void;
   onSelectShop?: (shopId: number | string) => void;
+  onOpenAuth?: () => void;
 }
 
 export const BookDetailPage: React.FC<BookDetailPageProps> = ({
   book,
   onBack,
   onSelectShop,
+  onOpenAuth,
 }) => {
+  const { isAuthenticated } = useAuth();
   const [currentBook, setCurrentBook] = useState<Book>(book);
   const [categories, setCategories] = useState<Category[]>([]);
   const [qty, setQty] = useState(1);
@@ -246,7 +250,14 @@ export const BookDetailPage: React.FC<BookDetailPageProps> = ({
                   </span>
                 </div>
                 <button
-                  onClick={() => setChatOpen(true)}
+                  type="button"
+                  onClick={() => {
+                    if (!isAuthenticated) {
+                      if (onOpenAuth) onOpenAuth();
+                      return;
+                    }
+                    setChatOpen(true);
+                  }}
                   className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 cursor-pointer"
                 >
                   <MessageSquare size={13} /> Chat với Shop
@@ -385,14 +396,15 @@ export const BookDetailPage: React.FC<BookDetailPageProps> = ({
         </div>
       )}
 
-      {/* Chat Drawer - Chỉ render khi người dùng thực sự bấm Chat với Shop */}
-      {chatOpen && (
+      {/* Chat Drawer - Chỉ render khi người dùng thực sự bấm Chat với Shop và đã đăng nhập */}
+      {chatOpen && isAuthenticated && (
         <ChatDrawer
           isOpen={chatOpen}
           onClose={() => setChatOpen(false)}
           shopId={currentBook.shopId}
           shopName={currentBook.shopName}
           book={currentBook}
+          onOpenAuth={onOpenAuth}
           onSelectBook={(newBook) => {
             setCurrentBook(newBook);
             setChatOpen(false);

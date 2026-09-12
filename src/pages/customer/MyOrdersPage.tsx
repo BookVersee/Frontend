@@ -239,12 +239,20 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({
                         {formatOrderDate(order.createdAt)}
                       </span>
                     </div>
-                    <Badge
-                      label={si.label}
-                      color={si.color}
-                      bg={si.bg}
-                      icon={si.icon}
-                    />
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {order.returnDelivery?.trackingNumber && (
+                        <span className="px-2 py-0.5 rounded-md bg-orange-100 text-orange-800 text-[10px] font-extrabold border border-orange-200 flex items-center gap-1">
+                          <Truck size={11} className="text-orange-600" />
+                          Thu hồi GHN: {order.returnDelivery.trackingNumber}
+                        </span>
+                      )}
+                      <Badge
+                        label={si.label}
+                        color={si.color}
+                        bg={si.bg}
+                        icon={si.icon}
+                      />
+                    </div>
                   </div>
 
                   {/* Danh sách sách trong đơn */}

@@ -33,4 +33,16 @@ export const shippingService = {
     });
     return res.data?.data;
   },
+
+  /**
+   * Tạo vận đơn thu hồi/trả hàng qua API Giao Hàng Nhanh (GHN Sandbox)
+   * POST /api/shipping/CreateReturnGhnOrder/{returnRequestId}
+   * @param returnRequestId ID của yêu cầu đổi trả
+   */
+  async createReturnGhnOrder(returnRequestId: string | number): Promise<GhnDeliveryResult> {
+    const res = await apiClient.post<ApiResponse<GhnDeliveryResult>>(
+      `/shipping/CreateReturnGhnOrder/${returnRequestId}`
+    );
+    return res.data?.data;
+  },
 };

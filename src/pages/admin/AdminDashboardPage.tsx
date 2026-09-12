@@ -36,6 +36,8 @@ import {
   PieChart,
   UserPlus,
   Truck,
+  ExternalLink,
+  Copy,
 } from "lucide-react";
 import { Order, Transaction, User, ReturnStatus, Shop, Category } from "../../types";
 import {
@@ -43,6 +45,7 @@ import {
   EscrowHoldingItem,
   ReportedItem,
 } from "../../services/adminService";
+import { shippingService } from "../../services/shippingService";
 import { orderStatusInfo } from "../../utils/status";
 import { fmt } from "../../utils/format";
 import { Card } from "../../components/common/Card";
@@ -266,6 +269,12 @@ export const AdminDashboardPage: React.FC = () => {
         const existing = combinedOrders.find((o) => String(o.id) === String(d.id));
         if (existing) {
           existing.returnRequest = d.returnRequest;
+          if (d.returnDelivery) {
+            existing.returnDelivery = d.returnDelivery;
+          }
+          if (d.deliveries && d.deliveries.length > 0) {
+            existing.deliveries = d.deliveries;
+          }
         } else {
           combinedOrders.push(d);
         }
@@ -365,6 +374,21 @@ export const AdminDashboardPage: React.FC = () => {
     );
   };
 
+  const [creatingReturnGhnId, setCreatingReturnGhnId] = useState<string | null>(null);
+
+  const handleCreateReturnGhnOrder = async (returnRequestId: string | number) => {
+    try {
+      setCreatingReturnGhnId(String(returnRequestId));
+      const res = await shippingService.createReturnGhnOrder(String(returnRequestId));
+      alert(res?.message || "Tạo vận đơn thu hồi GHN thành công!");
+      await loadData();
+    } catch (err: any) {
+      alert(err?.response?.data?.message || err?.message || "Lỗi khi tạo vận đơn thu hồi GHN.");
+    } finally {
+      setCreatingReturnGhnId(null);
+    }
+  };
+
   const handleConfirmResolution = async () => {
     if (!resolutionOrderId && !resolutionDisputeId) return;
     const targetId = resolutionDisputeId || resolutionOrderId;
@@ -398,6 +422,8 @@ export const AdminDashboardPage: React.FC = () => {
     );
     setResolutionOrderId(null);
     setResolutionDisputeId(null);
+    // Tải lại dữ liệu để đồng bộ thông tin vận đơn GHN thu hồi mới nhất từ Backend
+    await loadData();
   };
 
   const handleOpenChatWithShop = (shopId: string | number, shopName: string) => {
@@ -1333,6 +1359,109 @@ export const AdminDashboardPage: React.FC = () => {
                                       <p className="text-blue-800">{rr.adminResolutionNote}</p>
                                     </div>
                                   )}
+
+                                  {/* Thông tin Vận đơn GHN Thu Hồi Hàng */}
+                                  {(() => {
+                                    const retDel =
+                                      order.returnDelivery ||
+                                      order.items?.find((it) => it.returnDelivery)?.returnDelivery;
+
+                                    if (retDel && retDel.trackingNumber) {
+                                      const retStatus = retDel.status?.toUpperCase() || "PENDING";
+                                      const statusText =
+                                        retStatus === "PENDING"
+                                          ? "Đang chờ GHN lấy hàng từ khách"
+                                          : retStatus === "TRANSIT"
+                                          ? "Đang chuyển về kho Shop"
+                                          : retStatus === "DELIVERED"
+                                          ? "Shop đã nhận lại hàng thành công"
+                                          : retStatus;
+
+                                      return (
+                                        <div className="p-3 bg-emerald-50/80 rounded-xl border border-emerald-200 text-xs space-y-2">
+                                          <div className="flex items-center justify-between flex-wrap gap-2">
+                                            <div className="flex items-center gap-2">
+                                              <div className="w-6 h-6 rounded-md bg-emerald-600 text-white flex items-center justify-center font-bold text-[10px] shadow-xs">
+                                                GHN
+                                              </div>
+                                              <div>
+                                                <span className="font-bold text-emerald-950 block">
+                                                  Vận đơn thu hồi GHN Express (Sandbox)
+                                                </span>
+                                                <span className="text-[11px] text-emerald-700">
+                                                  Chiều thu hồi: Khách hàng ➔ Kho Shop
+                                                </span>
+                                              </div>
+                                            </div>
+                                            <span
+                                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                                retStatus === "DELIVERED"
+                                                  ? "bg-emerald-200 text-emerald-900 border-emerald-300"
+                                                  : retStatus === "TRANSIT"
+                                                  ? "bg-blue-100 text-blue-800 border-blue-200"
+                                                  : "bg-amber-100 text-amber-800 border-amber-200"
+                                              }`}
+                                            >
+                                              {statusText}
+                                            </span>
+                                          </div>
+
+                                          <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-emerald-200">
+                                            <div>
+                                              <span className="text-[10px] text-slate-500 block">
+                                                Mã vận đơn GHN thu hồi:
+                                              </span>
+                                              <span className="font-mono font-bold text-emerald-800 text-xs tracking-wider">
+                                                {retDel.trackingNumber}
+                                              </span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  navigator.clipboard.writeText(retDel.trackingNumber || "");
+                                                  alert("Đã sao chép mã vận đơn thu hồi!");
+                                                }}
+                                                className="px-2 py-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer"
+                                              >
+                                                Sao chép
+                                              </button>
+                                              <a
+                                                href={`https://tracking.ghn.dev/?order_code=${retDel.trackingNumber}`}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-lg transition-colors"
+                                              >
+                                                <span>Tra cứu GHN</span>
+                                                <ExternalLink size={11} />
+                                              </a>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+
+                                    if (rr.status === "APPROVED") {
+                                      return (
+                                        <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-xs flex items-center justify-between flex-wrap gap-2">
+                                          <div className="text-[11px] text-amber-900">
+                                            <strong>Vận đơn thu hồi GHN:</strong> Chưa phát sinh hoặc đang xử lý.
+                                          </div>
+                                          <button
+                                            type="button"
+                                            disabled={creatingReturnGhnId === String(rr.id)}
+                                            onClick={() => handleCreateReturnGhnOrder(rr.id)}
+                                            className="px-2.5 py-1 text-[11px] font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                                          >
+                                            <Truck size={12} />
+                                            {creatingReturnGhnId === String(rr.id) ? "Đang tạo..." : "Tạo đơn GHN thu hồi"}
+                                          </button>
+                                        </div>
+                                      );
+                                    }
+
+                                    return null;
+                                  })()}
 
                                   <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
                                     <span>
@@ -2551,6 +2680,17 @@ export const AdminDashboardPage: React.FC = () => {
                 {resolutionDecision === "APPROVED" ? "Duyệt hoàn tiền 100% cho Khách" : "Bác bỏ khiếu nại của Khách"}
               </strong>
             </p>
+
+            {resolutionDecision === "APPROVED" && (
+              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs space-y-1">
+                <p className="font-bold flex items-center gap-1.5 text-emerald-950">
+                  <Truck size={14} className="text-emerald-700" /> Tự động phát sinh vận đơn thu hồi GHN Express
+                </p>
+                <p className="text-emerald-800">
+                  Khi bạn chấp nhận phán quyết hoàn tiền, Backend sẽ <strong>tự động gọi API Sandbox của Giao Hàng Nhanh (GHN)</strong> để tạo vận đơn lấy sách từ khách hàng về kho Shop.
+                </p>
+              </div>
+            )}
 
             <div>
               <label className="block font-semibold text-slate-700 mb-1">

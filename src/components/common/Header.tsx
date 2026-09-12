@@ -169,14 +169,18 @@ export const Header: React.FC<HeaderProps> = ({
           {onOpenChat && (
             <button
               onClick={() => {
+                if (!isAuthenticated) {
+                  onOpenAuth();
+                  return;
+                }
                 setUnreadChatCount(0);
                 onOpenChat();
               }}
               className="relative p-2.5 rounded-xl hover:bg-[#3d2b1a] transition-colors text-[#b5a898] hover:text-[#fdf9f5] cursor-pointer"
-              title="Tin nhắn Hộp thư tư vấn"
+              title={isAuthenticated ? "Tin nhắn Hộp thư tư vấn" : "Đăng nhập để nhắn tin tư vấn"}
             >
               <MessageSquare size={18} />
-              {unreadChatCount > 0 && (
+              {isAuthenticated && unreadChatCount > 0 && (
                 <span className="absolute top-1 right-1 min-w-4 h-4 px-1 bg-red-600 text-white rounded-full text-[10px] flex items-center justify-center font-bold animate-pulse leading-none shadow-sm">
                   {unreadChatCount}
                 </span>
@@ -205,7 +209,11 @@ export const Header: React.FC<HeaderProps> = ({
           if (link.includes("orders")) {
             setCustomerPage("orders");
           } else if (link.includes("chat")) {
-            if (onOpenChat) onOpenChat();
+            if (!isAuthenticated) {
+              onOpenAuth();
+            } else if (onOpenChat) {
+              onOpenChat();
+            }
           }
         }}
       />

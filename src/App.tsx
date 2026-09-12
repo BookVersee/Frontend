@@ -25,7 +25,7 @@ import { AdminDashboardPage } from "./pages/admin/AdminDashboardPage";
 import { DeliverDashboardPage } from "./pages/deliver/DeliverDashboardPage";
 
 const AppContent: React.FC = () => {
-  const { role } = useAuth();
+  const { role, isAuthenticated } = useAuth();
   const isPaymentCallback =
     window.location.search.includes("vnp_ResponseCode") ||
     window.location.search.includes("resultCode") ||
@@ -41,6 +41,22 @@ const AppContent: React.FC = () => {
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [chatDrawerOpen, setChatDrawerOpen] = useState(false);
 
+  // Tự động đóng khung chat nếu người dùng đăng xuất
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setChatDrawerOpen(false);
+    }
+  }, [isAuthenticated]);
+
+  const handleOpenChat = (shopId?: number | string) => {
+    if (!isAuthenticated) {
+      setAuthModalOpen(true);
+      return;
+    }
+    if (shopId) setSelectedShopId(shopId);
+    setChatDrawerOpen(true);
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-100/70 text-slate-900 selection:bg-blue-600 selection:text-white">
       {/* Header */}
@@ -48,7 +64,7 @@ const AppContent: React.FC = () => {
         customerPage={customerPage}
         setCustomerPage={setCustomerPage}
         onOpenAuth={() => setAuthModalOpen(true)}
-        onOpenChat={() => setChatDrawerOpen(true)}
+        onOpenChat={() => handleOpenChat()}
       />
 
       {/* Main Role Content */}
@@ -99,6 +115,7 @@ const AppContent: React.FC = () => {
             <BookDetailPage
               book={selectedBook}
               onBack={() => setCustomerPage("home")}
+              onOpenAuth={() => setAuthModalOpen(true)}
               onSelectShop={(shopId) => {
                 setSelectedShopId(shopId);
                 setCustomerPage("shopProfile");
@@ -123,6 +140,7 @@ const AppContent: React.FC = () => {
           <ShopProfilePage
             shopId={selectedShopId}
             onBack={() => setCustomerPage("home")}
+            onOpenAuth={() => setAuthModalOpen(true)}
             onSelectBook={(book) => {
               setSelectedBook(book);
               setCustomerPage("book");
@@ -150,10 +168,7 @@ const AppContent: React.FC = () => {
               setSelectedOrder(order);
               setCustomerPage("orderDetail");
             }}
-            onOpenChat={(shopId) => {
-              if (shopId) setSelectedShopId(shopId);
-              setChatDrawerOpen(true);
-            }}
+            onOpenChat={(shopId) => handleOpenChat(shopId)}
           />
         )}
 
@@ -162,10 +177,7 @@ const AppContent: React.FC = () => {
             <OrderDetailPage
               order={selectedOrder}
               onBack={() => setCustomerPage("orders")}
-              onOpenChat={(shopId) => {
-                if (shopId) setSelectedShopId(shopId);
-                setChatDrawerOpen(true);
-              }}
+              onOpenChat={(shopId) => handleOpenChat(shopId)}
             />
           ) : (
             <MyOrdersPage
@@ -173,10 +185,7 @@ const AppContent: React.FC = () => {
                 setSelectedOrder(order);
                 setCustomerPage("orderDetail");
               }}
-              onOpenChat={(shopId) => {
-                if (shopId) setSelectedShopId(shopId);
-                setChatDrawerOpen(true);
-              }}
+              onOpenChat={(shopId) => handleOpenChat(shopId)}
             />
           )
         )}
@@ -220,6 +229,7 @@ const AppContent: React.FC = () => {
           isOpen={chatDrawerOpen}
           onClose={() => setChatDrawerOpen(false)}
           shopId={selectedShopId}
+          onOpenAuth={() => setAuthModalOpen(true)}
           onSelectBook={(book) => {
             setSelectedBook(book);
             setCustomerPage("book");
