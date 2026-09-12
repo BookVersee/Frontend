@@ -3,26 +3,79 @@ import { Order, CartItem, PaymentMethod, ApiResponse } from "../types";
 import { INITIAL_ORDERS } from "./mockData";
 import { normalizeBookGuid, generateGuid } from "../utils/guidHelper";
 import { cartService } from "./cartService";
+import { getStoredToken } from "../utils/storage";
 
-export const orderService = {
-  async getOrders(customerId?: string | number): Promise<Order[]> {
-    try {
-      // Backend xác định user qua JWT token gửi kèm, gọi GetUserOrders
-      const res = await apiClient.get<ApiResponse<any[]>>("/orders/GetUserOrders");
-      const mappedOrders: Order[] = (res.data?.data || []).map((o: any) => ({
-        id: o.id,
-        customerId: o.userId,
-        customerName: o.userFullName,
-        items: (o.orderDetails || []).map((od: any, idx: number) => {
-          const colors = [
-            { c1: "#1e3a8a", c2: "#3b82f6" },
-            { c1: "#065f46", c2: "#10b981" },
-            { c1: "#78350f", c2: "#d97706" },
-            { c1: "#581c87", c2: "#9333ea" },
-            { c1: "#831843", c2: "#db2777" },
-          ];
-          const colorPair = colors[Math.abs(String(od.bookId || idx).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0)) % colors.length];
-          const itemReturnReq = od.returnRequest ? {
+function mapBackendOrder(o: any): Order {
+  const rawDeliveries = (o.deliveries || []).map((d: any) => ({
+    id: d.id,
+    orderId: d.orderId,
+    trackingNumber: d.trackingNumber,
+    carrierName: d.carrierName,
+    shipFee: d.shipFee,
+    status: d.status,
+    estimatedDelivery: d.estimatedDelivery,
+    actualDeliveredAt: d.actualDeliveredAt,
+  }));
+
+  const foundReturnDelivery = rawDeliveries.find(
+    (d: any) =>
+      d.carrierName === "GHN_RETURN" ||
+      (d.trackingNumber && d.trackingNumber.startsWith("GHN_RET"))
+  );
+
+  const returnDelivery = foundReturnDelivery
+    ? {
+        id: foundReturnDelivery.id,
+        orderId: foundReturnDelivery.orderId,
+        trackingNumber: foundReturnDelivery.trackingNumber,
+        carrierName: foundReturnDelivery.carrierName || "GHN_RETURN",
+        shipFee: foundReturnDelivery.shipFee,
+        status: foundReturnDelivery.status || "PENDING",
+        estimatedDelivery: foundReturnDelivery.estimatedDelivery,
+        actualDeliveredAt: foundReturnDelivery.actualDeliveredAt,
+      }
+    : undefined;
+
+  const firstReq = (o.orderDetails || []).find((od: any) => od.returnRequest)?.returnRequest;
+  const orderReturnReq = firstReq
+    ? {
+        id: firstReq.id,
+        orderId: o.id,
+        orderDetailId: firstReq.orderDetailId,
+        reason: firstReq.detailedReason || "",
+        reasonType: firstReq.reasonType,
+        status: firstReq.status,
+        refundAmount: firstReq.refundAmount,
+        createdAt: firstReq.createdAt,
+        evidenceImage: firstReq.imageUrl,
+        imageUrl: firstReq.imageUrl,
+        disputeStatus: (firstReq.status === "PENDING" ? "OPEN" : "CLOSED") as any,
+      }
+    : undefined;
+
+  return {
+    id: o.id,
+    customerId: o.userId,
+    customerName: o.userFullName,
+    customerPhone: "",
+    items: (o.orderDetails || []).map((od: any, idx: number) => {
+      const colors = [
+        { c1: "#1e3a8a", c2: "#3b82f6" },
+        { c1: "#065f46", c2: "#10b981" },
+        { c1: "#78350f", c2: "#d97706" },
+        { c1: "#581c87", c2: "#9333ea" },
+        { c1: "#831843", c2: "#db2777" },
+      ];
+      const colorPair =
+        colors[
+          Math.abs(
+            String(od.bookId || idx)
+              .split("")
+              .reduce((acc, c) => acc + c.charCodeAt(0), 0)
+          ) % colors.length
+        ];
+      const itemReturnReq = od.returnRequest
+        ? {
             id: od.returnRequest.id,
             orderId: o.id,
             orderDetailId: od.orderDetailId || od.id,
@@ -31,55 +84,62 @@ export const orderService = {
             reason: od.returnRequest.detailedReason || "",
             reasonType: od.returnRequest.reasonType,
             status: od.returnRequest.status,
-            refundAmount: od.returnRequest.refundAmount || (od.unitPrice * od.quantity),
+            refundAmount: od.returnRequest.refundAmount || od.unitPrice * od.quantity,
             createdAt: od.returnRequest.createdAt,
             evidenceImage: od.returnRequest.imageUrl,
             imageUrl: od.returnRequest.imageUrl,
-          } : undefined;
+          }
+        : undefined;
 
-          return {
-            orderDetailId: od.orderDetailId || od.id,
-            book: {
-              id: od.bookId,
-              title: od.bookTitle,
-              price: od.unitPrice,
-              imageUrl: od.bookImage || od.BookImage || od.imageUrl || od.bookImageUrl || od.book?.imageUrl,
-              coverColor: colorPair.c1,
-              coverColor2: colorPair.c2,
-            },
-            quantity: od.quantity,
-            unitPrice: od.unitPrice,
-            returnStatus: od.returnStatus || "NONE",
-            returnRequest: itemReturnReq,
-          };
-        }),
-        totalAmount: o.totalAmount,
-        shippingFee: 30000,
-        orderStatus: o.orderStatus,
-        paymentStatus: o.orderStatus === "PAID" || o.orderStatus === "COMPLETED" ? "PAID" : "UNPAID",
-        paymentMethod: "COD",
-        shippingAddress: o.shippingAddress,
-        createdAt: o.createdAt,
-        updatedAt: o.createdAt,
-        note: o.note || "",
-        returnRequest: (() => {
-          const firstReq = (o.orderDetails || []).find((od: any) => od.returnRequest)?.returnRequest;
-          if (!firstReq) return undefined;
-          return {
-            id: firstReq.id,
-            orderId: o.id,
-            orderDetailId: firstReq.orderDetailId,
-            reason: firstReq.detailedReason || "",
-            reasonType: firstReq.reasonType,
-            status: firstReq.status,
-            refundAmount: firstReq.refundAmount,
-            createdAt: firstReq.createdAt,
-            evidenceImage: firstReq.imageUrl,
-            imageUrl: firstReq.imageUrl,
-            disputeStatus: (firstReq.status === "PENDING" ? "OPEN" : "CLOSED") as any,
-          };
-        })(),
-      }));
+      return {
+        orderDetailId: od.orderDetailId || od.id,
+        book: {
+          id: od.bookId,
+          title: od.bookTitle,
+          price: od.unitPrice,
+          imageUrl:
+            od.bookImage ||
+            od.BookImage ||
+            od.imageUrl ||
+            od.bookImageUrl ||
+            od.book?.imageUrl,
+          coverColor: colorPair.c1,
+          coverColor2: colorPair.c2,
+        },
+        quantity: od.quantity,
+        unitPrice: od.unitPrice,
+        returnStatus: od.returnStatus || "NONE",
+        returnRequest: itemReturnReq,
+        returnDelivery: itemReturnReq ? returnDelivery : undefined,
+      };
+    }),
+    totalAmount: o.totalAmount,
+    shippingFee: 30000,
+    orderStatus: o.orderStatus,
+    paymentStatus:
+      o.orderStatus === "PAID" || o.orderStatus === "COMPLETED" ? "PAID" : "UNPAID",
+    paymentMethod: "COD",
+    shippingAddress: o.shippingAddress,
+    createdAt: o.createdAt,
+    updatedAt: o.createdAt,
+    note: o.note || "",
+    returnRequest: orderReturnReq,
+    returnDelivery,
+    deliveries: rawDeliveries,
+  };
+}
+
+export const orderService = {
+  async getOrders(customerId?: string | number): Promise<Order[]> {
+    const token = getStoredToken();
+    if (!token) {
+      return [];
+    }
+
+    try {
+      // Backend xác định user qua JWT token gửi kèm, gọi GetUserOrders
+      const res = await apiClient.get<ApiResponse<any[]>>("/orders/GetUserOrders");
+      const mappedOrders: Order[] = (res.data?.data || []).map(mapBackendOrder);
 
       // Nếu có customerId, chỉ giữ lại các đơn do chính tài khoản này ĐÃ ĐẶT MUA (Tránh nhầm với các đơn bán của shop)
       if (customerId) {
@@ -88,92 +148,22 @@ export const orderService = {
         );
       }
       return mappedOrders;
-    } catch (error) {
-      console.warn("getOrders API error, falling back to mock:", error);
-      return customerId
-        ? INITIAL_ORDERS.filter((o) => String(o.customerId) === String(customerId))
-        : INITIAL_ORDERS;
+    } catch (error: any) {
+      console.warn("getOrders API error:", error);
+      if (error?.response?.status === 401 || !customerId) {
+        return [];
+      }
+      return INITIAL_ORDERS.filter((o) => String(o.customerId) === String(customerId));
     }
   },
 
   async getOrderById(orderId: string | number): Promise<Order | null> {
     try {
       const res = await apiClient.get<ApiResponse<any>>(`/orders/GetOrderDetail`, {
-        params: { id: orderId }
+        params: { id: orderId },
       });
       const o = res.data.data;
-      return {
-        id: o.id,
-        customerId: o.userId,
-        customerName: o.userFullName,
-        customerPhone: "",
-        items: (o.orderDetails || []).map((od: any, idx: number) => {
-          const colors = [
-            { c1: "#1e3a8a", c2: "#3b82f6" },
-            { c1: "#065f46", c2: "#10b981" },
-            { c1: "#78350f", c2: "#d97706" },
-            { c1: "#581c87", c2: "#9333ea" },
-            { c1: "#831843", c2: "#db2777" },
-          ];
-          const colorPair = colors[Math.abs(String(od.bookId || idx).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0)) % colors.length];
-          const itemReturnReq = od.returnRequest ? {
-            id: od.returnRequest.id,
-            orderId: o.id,
-            orderDetailId: od.orderDetailId || od.id,
-            bookTitle: od.bookTitle,
-            bookImageUrl: od.bookImage || od.imageUrl,
-            reason: od.returnRequest.detailedReason || "",
-            reasonType: od.returnRequest.reasonType,
-            status: od.returnRequest.status,
-            refundAmount: od.returnRequest.refundAmount || (od.unitPrice * od.quantity),
-            createdAt: od.returnRequest.createdAt,
-            evidenceImage: od.returnRequest.imageUrl,
-            imageUrl: od.returnRequest.imageUrl,
-          } : undefined;
-
-          return {
-            orderDetailId: od.orderDetailId || od.id,
-            book: {
-              id: od.bookId,
-              title: od.bookTitle,
-              price: od.unitPrice,
-              imageUrl: od.bookImage || od.BookImage || od.imageUrl || od.bookImageUrl || od.book?.imageUrl,
-              coverColor: colorPair.c1,
-              coverColor2: colorPair.c2,
-            },
-            quantity: od.quantity,
-            unitPrice: od.unitPrice,
-            returnStatus: od.returnStatus || "NONE",
-            returnRequest: itemReturnReq,
-          };
-        }),
-        totalAmount: o.totalAmount,
-        shippingFee: 30000,
-        orderStatus: o.orderStatus,
-        paymentStatus: o.orderStatus === "PAID" || o.orderStatus === "COMPLETED" ? "PAID" : "UNPAID",
-        paymentMethod: "COD",
-        shippingAddress: o.shippingAddress,
-        createdAt: o.createdAt,
-        updatedAt: o.createdAt,
-        note: o.note || "",
-        returnRequest: (() => {
-          const firstReq = (o.orderDetails || []).find((od: any) => od.returnRequest)?.returnRequest;
-          if (!firstReq) return undefined;
-          return {
-            id: firstReq.id,
-            orderId: o.id,
-            orderDetailId: firstReq.orderDetailId,
-            reason: firstReq.detailedReason || "",
-            reasonType: firstReq.reasonType,
-            status: firstReq.status,
-            refundAmount: firstReq.refundAmount,
-            createdAt: firstReq.createdAt,
-            evidenceImage: firstReq.imageUrl,
-            imageUrl: firstReq.imageUrl,
-            disputeStatus: (firstReq.status === "PENDING" ? "OPEN" : "CLOSED") as any,
-          };
-        })(),
-      };
+      return mapBackendOrder(o);
     } catch (error) {
       console.warn("getOrderById API error, falling back to mock:", error);
       return INITIAL_ORDERS.find((o) => String(o.id) === String(orderId)) || null;

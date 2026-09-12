@@ -7,18 +7,22 @@ import { Btn } from "../../components/common/Btn";
 import { Card } from "../../components/common/Card";
 import { fmt } from "../../utils/format";
 import { ChatDrawer } from "../../components/chat/ChatDrawer";
+import { useAuth } from "../../contexts/AuthContext";
 
 interface ShopProfilePageProps {
   shopId: number | string;
   onBack: () => void;
   onSelectBook: (book: Book) => void;
+  onOpenAuth?: () => void;
 }
 
 export const ShopProfilePage: React.FC<ShopProfilePageProps> = ({
   shopId,
   onBack,
   onSelectBook,
+  onOpenAuth,
 }) => {
+  const { isAuthenticated } = useAuth();
   const [shop, setShop] = useState<Shop | null>(null);
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,7 +109,13 @@ export const ShopProfilePage: React.FC<ShopProfilePageProps> = ({
 
           <div className="flex items-center gap-2">
             <Btn
-              onClick={() => setChatOpen(true)}
+              onClick={() => {
+                if (!isAuthenticated) {
+                  if (onOpenAuth) onOpenAuth();
+                  return;
+                }
+                setChatOpen(true);
+              }}
               color="#1d4ed8"
               size="md"
               className="cursor-pointer"
@@ -163,12 +173,13 @@ export const ShopProfilePage: React.FC<ShopProfilePageProps> = ({
       )}
 
       {/* Chat Drawer */}
-      {chatOpen && (
+      {chatOpen && isAuthenticated && (
         <ChatDrawer
           isOpen={chatOpen}
           onClose={() => setChatOpen(false)}
           shopId={shop.id}
           shopName={shop.name}
+          onOpenAuth={onOpenAuth}
           onSelectBook={onSelectBook}
         />
       )}

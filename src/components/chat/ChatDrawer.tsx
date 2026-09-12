@@ -23,6 +23,7 @@ import {
   Clock,
   ShieldCheck,
   ShoppingBag,
+  Lock,
 } from "lucide-react";
 import { ChatMessage, Book, Order, Shop } from "../../types";
 import {
@@ -49,6 +50,7 @@ interface ChatDrawerProps {
   shopName?: string;
   book?: Book | null;
   onSelectBook?: (book: Book) => void;
+  onOpenAuth?: () => void;
 }
 
 export const ChatDrawer: React.FC<ChatDrawerProps> = ({
@@ -58,8 +60,9 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   shopName = "Nhà sách Phương Nam",
   book,
   onSelectBook,
+  onOpenAuth,
 }) => {
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const { addToCart } = useCart();
 
   // Bật/tắt Cột 3 (Hồ sơ Shop & Đơn hàng)
@@ -146,9 +149,9 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
     };
   }, [isDraggingCol1, isDraggingCol3]);
 
-  // Tải thông tin Shop Profile & Đơn hàng của khách tại shop này khi đổi shop (Chỉ tải khi khung chat mở)
+  // Tải thông tin Shop Profile & Đơn hàng của khách tại shop này khi đổi shop (Chỉ tải khi khung chat mở và đã đăng nhập)
   useEffect(() => {
-    if (!isOpen || !currentShopId) return;
+    if (!isOpen || !isAuthenticated || !currentShopId) return;
 
     // 1. Tải hồ sơ Shop
     bookService.getShopProfile(currentShopId).then((profile) => {
@@ -162,10 +165,9 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
           String(o.shopId) === String(currentShopId) ||
           (o.shopName && o.shopName.toLowerCase() === currentShopName.toLowerCase())
       );
-      // Nếu chưa có đơn cụ thể của shop, lấy các đơn gần đây của khách để hỗ trợ đối soát
-      setShopOrders(specific.length > 0 ? specific : orders.slice(0, 3));
+      setShopOrders(specific);
     });
-  }, [isOpen, currentShopId, currentShopName, user?.id]);
+  }, [isOpen, isAuthenticated, currentShopId, currentShopName, user?.id]);
 
   // Mở trang chi tiết sách khi khách hàng click vào thẻ sản phẩm
   const handleOpenBookDetail = async (product: ProductCardData) => {
@@ -247,33 +249,33 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
 
   // Cập nhật shop khi props thay đổi
   useEffect(() => {
-    if (isOpen) {
-      if (book) {
-        setCurrentShopId(book.shopId);
-        setCurrentShopName(book.shopName);
-        setCurrentBook(book);
-      } else if (shopId && shopId !== 1 && shopId !== "1") {
-        setCurrentShopId(shopId);
-        setCurrentShopName(shopName);
-        setCurrentBook(null);
-      } else {
-        // Mở từ Header: Tự động ưu tiên chọn cuộc trò chuyện thực tế đầu tiên trong Database
-        setCurrentBook(null);
-        chatService.getUserConversations().then((threads) => {
-          if (threads && threads.length > 0) {
-            const first = threads[0];
-            setCurrentShopId(first.shopId);
-            setCurrentShopName(first.shopName || first.userName || "Gian hàng");
-            setActiveChatId(first.chatId);
-          } else {
-            setCurrentShopId("");
-            setCurrentShopName("");
-            setActiveChatId("");
-          }
-        });
-      }
+    if (!isOpen || !isAuthenticated) return;
+
+    if (book) {
+      setCurrentShopId(book.shopId);
+      setCurrentShopName(book.shopName);
+      setCurrentBook(book);
+    } else if (shopId && shopId !== 1 && shopId !== "1") {
+      setCurrentShopId(shopId);
+      setCurrentShopName(shopName);
+      setCurrentBook(null);
+    } else {
+      // Mở từ Header: Tự động ưu tiên chọn cuộc trò chuyện thực tế đầu tiên trong Database
+      setCurrentBook(null);
+      chatService.getUserConversations().then((threads) => {
+        if (threads && threads.length > 0) {
+          const first = threads[0];
+          setCurrentShopId(first.shopId);
+          setCurrentShopName(first.shopName || first.userName || "Gian hàng");
+          setActiveChatId(first.chatId);
+        } else {
+          setCurrentShopId("");
+          setCurrentShopName("");
+          setActiveChatId("");
+        }
+      });
     }
-  }, [isOpen, shopId, shopName, book]);
+  }, [isOpen, isAuthenticated, shopId, shopName, book]);
 
   // Format thời gian hiển thị gọn gàng trong danh sách cuộc trò chuyện
   const formatChatTime = (timeStr?: string) => {
@@ -314,7 +316,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
 
   // 2. Tải tin nhắn của Shop hiện tại & Khởi tạo SignalR
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !isAuthenticated) return;
 
     loadUserThreads();
 
@@ -406,14 +408,13 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
       unsubscribeNotif();
       window.removeEventListener("bookverse_chat_updated", handleLocalUpdate);
     };
-  }, [isOpen, currentShopId]);
+  }, [isOpen, isAuthenticated, currentShopId]);
 
   // Gia nhập phòng chat khi có chatId
   useEffect(() => {
-    if (activeChatId && isValidGuid(activeChatId)) {
-      signalRService.joinChatRoom(activeChatId);
-    }
-  }, [activeChatId]);
+    if (!isOpen || !isAuthenticated || !activeChatId || !isValidGuid(activeChatId)) return;
+    signalRService.joinChatRoom(activeChatId);
+  }, [isOpen, isAuthenticated, activeChatId]);
 
   // Cuộn xuống tin nhắn mới nhất
   const scrollToBottom = () => {
@@ -491,6 +492,41 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
   );
 
   if (!isOpen) return null;
+
+  if (!isAuthenticated) {
+    return (
+      <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="bg-white rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl border border-slate-100 animate-in fade-in zoom-in duration-200">
+          <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto mb-4 shadow-xs">
+            <Lock size={32} />
+          </div>
+          <h3 className="text-lg font-bold text-slate-900 mb-2">Đăng nhập để chat tư vấn</h3>
+          <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+            Bạn cần đăng nhập tài khoản BookVerse để trò chuyện trực tiếp với các nhà sách và theo dõi đơn hàng của bạn.
+          </p>
+          <div className="flex flex-col gap-2.5">
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                if (onOpenAuth) onOpenAuth();
+              }}
+              className="w-full py-2.5 bg-[#2a211c] hover:bg-[#3d2b1a] text-white font-bold rounded-xl text-xs transition-all shadow-sm cursor-pointer"
+            >
+              Đăng nhập ngay
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs transition-all cursor-pointer"
+            >
+              Đóng
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // =========================================================
   // SUB-COMPONENT: RENDER CỘT 1 (DANH SÁCH SHOP - INBOX LIST)

@@ -2,6 +2,7 @@ import { apiClient } from "./api";
 import { ChatMessage, ApiResponse } from "../types";
 import { INITIAL_MESSAGES, INITIAL_SHOPS, INITIAL_BOOKS } from "./mockData";
 import { signalRService } from "./signalRService";
+import { getStoredToken } from "../utils/storage";
 
 export interface ChatThread {
   chatId: string;
@@ -269,19 +270,30 @@ const getShopNameById = (shopId: string | number): string => {
 export const chatService = {
   // 1. Lấy danh sách cuộc trò chuyện của khách hàng với các Shop
   async getUserConversations(): Promise<ChatThread[]> {
+    const token = getStoredToken();
+    if (!token) {
+      return [];
+    }
+
     try {
       const res = await apiClient.get<ApiResponse<ChatThread[]>>("/chat/GetUserConversations");
       if (res.data.data && res.data.data.length > 0) {
         return res.data.data;
       }
-    } catch (error) {
-      console.warn("getUserConversations API error, falling back to dynamic local threads:", error);
+    } catch (error: any) {
+      console.warn("getUserConversations API error:", error);
+      if (error?.response?.status === 401) {
+        return [];
+      }
     }
 
-    // Fallback: Tự động gom nhóm từ danh sách tin nhắn đã lưu
+    // Fallback: Tự động gom nhóm từ danh sách tin nhắn đã lưu (chỉ khi có tin nhắn thực tế)
     const allMsgs = getStoredMessages();
-    const shopMap = new Map<string, ChatMessage[]>();
+    if (allMsgs.length === 0) {
+      return [];
+    }
 
+    const shopMap = new Map<string, ChatMessage[]>();
     allMsgs.forEach((m) => {
       const sId = String(m.shopId || "1");
       const list = shopMap.get(sId) || [];
@@ -304,20 +316,6 @@ export const chatService = {
         updatedAt: lastMsg?.createdAt || "Vừa xong",
       });
     });
-
-    // Luôn đảm bảo có các gian hàng phổ biến nếu danh sách ít
-    if (!threads.some((t) => t.shopId === "1")) {
-      threads.push({
-        chatId: "chat-shop-1",
-        userId: "customer",
-        userName: "Nhà sách Phương Nam",
-        shopName: "Nhà sách Phương Nam",
-        shopId: "1",
-        lastMessage: "Dạ chào bạn An, đây là bản bìa mềm có tay gập chính hãng!",
-        unreadCount: 0,
-        updatedAt: "09:18",
-      });
-    }
 
     return threads;
   },
@@ -421,6 +419,11 @@ export const chatService = {
     userId?: string | number;
   }): Promise<{ chatId?: string | number; messages: ChatMessage[] }> {
     const { chatId, shopId, userId } = params;
+
+    const token = getStoredToken();
+    if (!token) {
+      return { chatId: undefined, messages: [] };
+    }
 
     try {
       // Nếu chưa có chatId nhưng có shopId, tự tra cứu chatId từ danh sách hội thoại của user
