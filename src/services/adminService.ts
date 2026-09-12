@@ -133,34 +133,46 @@ export const adminService = {
       const res = await apiClient.get<ApiResponse<any>>(url, { params });
       const pagedData = res.data.data;
       const items = pagedData.items || pagedData || [];
-      return items.map((o: any) => ({
-        id: o.id,
-        customerId: o.userId,
-        customerName: o.userFullName || "Khách hàng",
-        customerPhone: o.phone || "0901234567",
-        shopId: o.shopId,
-        shopName: o.shopName || `Shop #${o.shopId}`,
-        items: (o.orderDetails || []).map((od: any) => ({
-          book: {
-            id: od.bookId,
-            title: od.bookTitle,
-            price: od.unitPrice,
-            coverColor: "#ffffff",
-            coverColor2: "#ffffff",
-          },
-          quantity: od.quantity,
-          unitPrice: od.unitPrice,
-        })),
-        totalAmount: o.totalAmount,
-        shippingFee: 30000,
-        orderStatus: o.orderStatus,
-        paymentStatus: o.orderStatus === "PAID" || o.orderStatus === "COMPLETED" ? "PAID" : "UNPAID",
-        paymentMethod: o.paymentMethod || "COD",
-        shippingAddress: o.shippingAddress || "123 Nguyễn Huệ, Quận 1, TP.HCM",
-        createdAt: o.createdAt,
-        updatedAt: o.createdAt,
-        note: o.note || "",
-      }));
+      return items.map((o: any) => {
+        const rawDeliveries = Array.isArray(o.deliveries) ? o.deliveries : [];
+        const returnDelivery =
+          o.returnDelivery ||
+          rawDeliveries.find(
+            (del: any) =>
+              del.carrierName === "GHN_RETURN" ||
+              (del.trackingNumber && String(del.trackingNumber).toUpperCase().startsWith("GHN_RET"))
+          );
+        return {
+          id: o.id,
+          customerId: o.userId,
+          customerName: o.userFullName || "Khách hàng",
+          customerPhone: o.phone || "0901234567",
+          shopId: o.shopId,
+          shopName: o.shopName || `Shop #${o.shopId}`,
+          items: (o.orderDetails || []).map((od: any) => ({
+            book: {
+              id: od.bookId,
+              title: od.bookTitle,
+              price: od.unitPrice,
+              coverColor: "#ffffff",
+              coverColor2: "#ffffff",
+            },
+            quantity: od.quantity,
+            unitPrice: od.unitPrice,
+          })),
+          totalAmount: o.totalAmount,
+          shippingFee: 30000,
+          orderStatus: o.orderStatus,
+          paymentStatus: o.orderStatus === "PAID" || o.orderStatus === "COMPLETED" ? "PAID" : "UNPAID",
+          paymentMethod: o.paymentMethod || "COD",
+          shippingAddress: o.shippingAddress || "123 Nguyễn Huệ, Quận 1, TP.HCM",
+          deliveries: rawDeliveries,
+          returnDelivery,
+          createdAt: o.createdAt,
+          updatedAt: o.createdAt,
+          note: o.note || "",
+        };
+      });
     } catch (error) {
       console.warn("getAllOrders API error, falling back to mock:", error);
       return status ? INITIAL_ORDERS.filter((o) => o.orderStatus === status) : INITIAL_ORDERS;
@@ -442,6 +454,22 @@ export const adminService = {
       const disputes = res.data.data || [];
       return disputes.map((d: any) => {
         const returnReqId = d.returnRequestId || d.id;
+        const rawDeliveries = Array.isArray(d.deliveries) ? d.deliveries : [];
+        const returnDelivery =
+          d.returnDelivery ||
+          rawDeliveries.find(
+            (del: any) =>
+              del.carrierName === "GHN_RETURN" ||
+              (del.trackingNumber && String(del.trackingNumber).toUpperCase().startsWith("GHN_RET"))
+          ) ||
+          (d.trackingNumber
+            ? {
+                trackingNumber: d.trackingNumber,
+                carrierName: d.carrierName || "GHN_RETURN",
+                status: d.deliveryStatus || "PENDING",
+              }
+            : undefined);
+
         return {
           id: d.orderId || returnReqId,
           customerId: d.userId || "",
@@ -456,6 +484,8 @@ export const adminService = {
           paymentStatus: "REFUNDED",
           paymentMethod: "ONLINE",
           shippingAddress: "",
+          deliveries: rawDeliveries,
+          returnDelivery,
           createdAt: d.createdAt,
           updatedAt: d.createdAt,
           returnRequest: {

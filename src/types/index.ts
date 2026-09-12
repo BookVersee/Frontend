@@ -108,6 +108,28 @@ export interface BackendCartResponse {
   grandTotal: number;
 }
 
+export interface ReturnDelivery {
+  id?: string;
+  orderId?: string;
+  trackingNumber: string;
+  carrierName: string; // "GHN_RETURN"
+  shipFee?: number;
+  status: string; // "PENDING" | "TRANSIT" | "DELIVERED"
+  estimatedDelivery?: string;
+  actualDeliveredAt?: string;
+}
+
+export interface DeliveryInfo {
+  id: string;
+  orderId: string;
+  trackingNumber?: string;
+  carrierName?: string;
+  shipFee?: number;
+  status: string;
+  estimatedDelivery?: string;
+  actualDeliveredAt?: string;
+}
+
 export interface OrderItem {
   orderDetailId?: string;
   book: Book;
@@ -115,6 +137,7 @@ export interface OrderItem {
   unitPrice: number;
   returnStatus?: BackendReturnStatus | string;
   returnRequest?: ReturnRequest;
+  returnDelivery?: ReturnDelivery;
 }
 
 export interface OrderTracking {
@@ -188,6 +211,8 @@ export interface Order {
   tracking?: OrderTracking;
   feedback?: OrderFeedback;
   returnRequest?: ReturnRequest;
+  returnDelivery?: ReturnDelivery;
+  deliveries?: DeliveryInfo[];
 }
 
 export interface BackendTransactionResponse {

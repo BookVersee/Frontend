@@ -1317,6 +1317,21 @@ export const ShopDashboardPage: React.FC = () => {
     setOrderSortBy("NEWEST");
   };
 
+  const [creatingReturnGhnId, setCreatingReturnGhnId] = useState<string | null>(null);
+
+  const handleCreateReturnGhnOrder = async (returnRequestId: string | number) => {
+    try {
+      setCreatingReturnGhnId(String(returnRequestId));
+      const res = await shippingService.createReturnGhnOrder(String(returnRequestId));
+      alert(res?.message || "Tạo vận đơn thu hồi GHN thành công!");
+      await loadData();
+    } catch (err: any) {
+      alert(err?.response?.data?.message || err?.message || "Lỗi khi tạo vận đơn thu hồi GHN.");
+    } finally {
+      setCreatingReturnGhnId(null);
+    }
+  };
+
   const handleOpenProcessReturnModal = (order: Order, isApprove: boolean) => {
     setSelectedReturnOrder(order);
     setIsApproveReturn(isApprove);
@@ -1373,6 +1388,8 @@ export const ShopDashboardPage: React.FC = () => {
 
       setShowProcessReturnModal(false);
       setSelectedReturnOrder(null);
+      // Đồng bộ lại danh sách đơn hàng để nhận trackingNumber của GHN_RETURN vừa tạo tự động
+      await loadData();
     } catch (err: any) {
       setReturnProcessError(err.message || "Xử lý yêu cầu trả hàng thất bại.");
     } finally {
@@ -2216,6 +2233,122 @@ export const ShopDashboardPage: React.FC = () => {
                               <p className="text-slate-600 italic">"{rr.shopResponse}"</p>
                             </div>
                           )}
+
+                          {/* Thông tin Vận đơn GHN Thu Hồi Hàng */}
+                          {(() => {
+                            const retDel =
+                              order.returnDelivery ||
+                              order.items?.find((it) => it.returnDelivery)?.returnDelivery;
+
+                            if (retDel && retDel.trackingNumber) {
+                              const retStatus = retDel.status?.toUpperCase() || "PENDING";
+                              const statusText =
+                                retStatus === "PENDING"
+                                  ? "Đang chờ GHN lấy hàng từ khách"
+                                  : retStatus === "TRANSIT"
+                                  ? "Đang vận chuyển về kho Shop"
+                                  : retStatus === "DELIVERED"
+                                  ? "Shop đã nhận lại hàng thành công"
+                                  : retStatus;
+
+                              return (
+                                <div className="p-3 bg-emerald-50/80 rounded-xl border border-emerald-200 text-xs space-y-2.5">
+                                  <div className="flex items-center justify-between flex-wrap gap-2">
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+                                        GHN
+                                      </div>
+                                      <div>
+                                        <span className="font-bold text-emerald-950 block">
+                                          Vận đơn thu hồi GHN Express (Sandbox)
+                                        </span>
+                                        <span className="text-[11px] text-emerald-700">
+                                          Chiều lấy hàng: Khách hàng ➔ Shop
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <span
+                                      className={`px-2.5 py-1 rounded-full text-[11px] font-bold border ${
+                                        retStatus === "DELIVERED"
+                                          ? "bg-emerald-200 text-emerald-900 border-emerald-300"
+                                          : retStatus === "TRANSIT"
+                                          ? "bg-blue-100 text-blue-800 border-blue-200"
+                                          : "bg-amber-100 text-amber-800 border-amber-200"
+                                      }`}
+                                    >
+                                      {statusText}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-emerald-200">
+                                    <div>
+                                      <span className="text-[11px] text-slate-500 block">
+                                        Mã vận đơn thu hồi:
+                                      </span>
+                                      <span className="font-mono font-bold text-emerald-800 text-sm tracking-wider">
+                                        {retDel.trackingNumber}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(retDel.trackingNumber || "");
+                                          alert("Đã sao chép mã vận đơn thu hồi!");
+                                        }}
+                                        className="px-2.5 py-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer"
+                                      >
+                                        Sao chép
+                                      </button>
+                                      <a
+                                        href={`https://tracking.ghn.dev/?order_code=${retDel.trackingNumber}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-lg transition-colors"
+                                      >
+                                        <span>Tra cứu GHN</span>
+                                        <ExternalLink size={12} />
+                                      </a>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            if (rr.status === "APPROVED" || rr.status === "PROCESSING") {
+                              return (
+                                <div className="p-3 bg-amber-50/80 rounded-xl border border-amber-200 text-xs flex items-center justify-between flex-wrap gap-2">
+                                  <div className="space-y-0.5">
+                                    <p className="font-bold text-amber-900 flex items-center gap-1.5">
+                                      <Truck size={14} className="text-amber-700" /> Vận đơn thu hồi GHN
+                                    </p>
+                                    <p className="text-amber-700 text-[11px]">
+                                      Nếu chưa có mã vận đơn thu hồi tự động, Shop có thể bấm tạo đơn GHN:
+                                    </p>
+                                  </div>
+                                  <Btn
+                                    size="sm"
+                                    color="#047857"
+                                    disabled={creatingReturnGhnId === String(rr.id)}
+                                    onClick={() => handleCreateReturnGhnOrder(rr.id)}
+                                    className="shadow-xs font-bold"
+                                  >
+                                    {creatingReturnGhnId === String(rr.id) ? (
+                                      <>
+                                        <Loader2 size={13} className="animate-spin" /> Đang tạo đơn GHN...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Truck size={13} /> Tạo vận đơn GHN thu hồi
+                                      </>
+                                    )}
+                                  </Btn>
+                                </div>
+                              );
+                            }
+
+                            return null;
+                          })()}
 
                           {/* Nút thao tác Chấp nhận / Từ chối */}
                           {rr.status === "PENDING" && (
@@ -4407,11 +4540,28 @@ export const ShopDashboardPage: React.FC = () => {
               </p>
             </div>
 
-            <p className="text-slate-600 leading-relaxed">
-              {isApproveReturn
-                ? "Sau khi bạn chấp nhận, hệ thống sẽ chuyển trạng thái sang Đang xử lý hoàn tiền (PROCESSING) và gửi thông báo tới khách hàng."
-                : "Nếu bạn từ chối, yêu cầu sẽ bị đóng lại. Khách hàng có quyền gửi khiếu nại lên Ban Quản Trị (Admin) nếu không đồng thuận."}
-            </p>
+            <div
+              className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                isApproveReturn
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+                  : "bg-slate-50 border-slate-200 text-slate-600"
+              }`}
+            >
+              {isApproveReturn ? (
+                <div className="space-y-1">
+                  <p className="font-bold flex items-center gap-1.5 text-emerald-950">
+                    <Truck size={14} className="text-emerald-700" /> Tự động kết nối GHN Express Sandbox thu hồi hàng
+                  </p>
+                  <p className="text-emerald-800">
+                    Khi bạn chấp nhận, Backend sẽ <strong>tự động phát sinh đơn thu hồi Giao Hàng Nhanh (GHN)</strong> chiều từ khách hàng về kho Shop. Shipper GHN sẽ nhận lệnh và tới lấy sách hoàn từ khách.
+                  </p>
+                </div>
+              ) : (
+                <p>
+                  Nếu bạn từ chối, yêu cầu sẽ bị đóng lại. Khách hàng có quyền gửi khiếu nại lên Ban Quản Trị (Admin) nếu không đồng thuận.
+                </p>
+              )}
+            </div>
 
             <div>
               <label className="block font-bold text-slate-700 mb-1.5">
