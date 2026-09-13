@@ -28,6 +28,10 @@ import {
   Receipt,
   Filter,
   X,
+  ChevronRight,
+  ArrowRight,
+  ArrowLeft,
+  Package,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { authService } from "../../services/authService";
@@ -38,24 +42,31 @@ import { Modal } from "../../components/common/Modal";
 import { fmt, formatOrderDate, formatOrderCode } from "../../utils/format";
 import { Transaction } from "../../types";
 
+export type ProfileDashboardTab = "profile" | "transactions" | "security";
+
 interface ProfilePageProps {
   onOpenAuth?: () => void;
   onGoHome?: () => void;
+  onGoOrders?: () => void;
 }
 
-export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }) => {
+export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome, onGoOrders }) => {
   const { user, isAuthenticated, logout } = useAuth();
+
+  // Dashboard Active Tab
+  const [dashboardTab, setDashboardTab] = useState<ProfileDashboardTab>("profile");
 
   // Profile Form state
   const [name, setName] = useState(user?.name || "");
   const [phone, setPhone] = useState(user?.phone || "");
   const [email, setEmail] = useState(user?.email || "");
-  const [address, setAddress] = useState(user?.address || "123 Nguyễn Huệ, Quận 1, TP.HCM");
+  const [address, setAddress] = useState(user?.address || "");
   const [saving, setSaving] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState(false);
   const [profileError, setProfileError] = useState("");
 
   // Change Password state
+  const [passChangeMode, setPassChangeMode] = useState<"old_password" | "email_otp">("old_password");
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -66,13 +77,20 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
   const [passSuccess, setPassSuccess] = useState("");
   const [passError, setPassError] = useState("");
 
+  // OTP Password Reset (dành cho người dùng quên mật khẩu cũ trong hồ sơ)
+  const [profileOtp, setProfileOtp] = useState("");
+  const [profileOtpSent, setProfileOtpSent] = useState(false);
+  const [profileOtpSending, setProfileOtpSending] = useState(false);
+  const [profileOtpVerifying, setProfileOtpVerifying] = useState(false);
+  const [profileOtpCooldown, setProfileOtpCooldown] = useState(0);
+
   // Google Account Set Password via OTP state
   const isGoogleUser = user?.authProvider === "google";
+  const [showGooglePassForm, setShowGooglePassForm] = useState(false);
   const [googleOtpSent, setGoogleOtpSent] = useState(false);
   const [googleOtp, setGoogleOtp] = useState("");
   const [googleOtpSending, setGoogleOtpSending] = useState(false);
   const [googleOtpVerifying, setGoogleOtpVerifying] = useState(false);
-
 
   // Shop Onboarding form state
   const [showShopRegister, setShowShopRegister] = useState(false);
@@ -98,19 +116,19 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
 
   const totalSpent = useMemo(() => {
     return transactions
-      .filter((t) => t.transactionType === "OUT" || t.type !== "REFUND")
+      .filter((t) => t.referenceType === "ORDER_PAYMENT" || (t.type !== "REFUND" && t.transactionType === "IN"))
       .reduce((sum, t) => sum + (t.amount || 0), 0);
   }, [transactions]);
 
   const totalRefunded = useMemo(() => {
     return transactions
-      .filter((t) => t.transactionType === "IN" || t.type === "REFUND")
+      .filter((t) => t.referenceType === "REFUND" || t.type === "REFUND")
       .reduce((sum, t) => sum + (t.amount || 0), 0);
   }, [transactions]);
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter((tx) => {
-      const isRefund = tx.referenceType === "REFUND" || tx.transactionType === "IN" || tx.type === "REFUND";
+      const isRefund = tx.referenceType === "REFUND" || tx.type === "REFUND";
       if (txFilter === "PAYMENT" && isRefund) return false;
       if (txFilter === "REFUND" && !isRefund) return false;
 
@@ -136,6 +154,15 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
       onOpenAuth();
     }
   }, [isAuthenticated, onOpenAuth]);
+
+  // Bộ đếm ngược thời gian gửi lại OTP đổi mật khẩu trong Profile
+  useEffect(() => {
+    if (profileOtpCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setProfileOtpCooldown((c) => Math.max(c - 1, 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [profileOtpCooldown]);
 
   // Load user transactions on mount
   useEffect(() => {
@@ -211,6 +238,61 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
       setPassError(err?.message || "Đổi mật khẩu không thành công. Vui lòng thử lại.");
     } finally {
       setChangingPass(false);
+    }
+  };
+
+  const handleSendProfileOtp = async () => {
+    if (!user?.email) return;
+    if (profileOtpCooldown > 0) return;
+    setProfileOtpSending(true);
+    setPassError("");
+    setPassSuccess("");
+    try {
+      const msg = await authService.sendPasswordOtp(user.email);
+      setProfileOtpSent(true);
+      setProfileOtpCooldown(60);
+      setPassSuccess(msg || `Mã OTP xác thực đã được gửi về hộp thư ${user.email}. Vui lòng kiểm tra hộp thư.`);
+    } catch (err: any) {
+      setPassError(err?.message || "Không thể gửi mã OTP. Vui lòng thử lại sau.");
+    } finally {
+      setProfileOtpSending(false);
+    }
+  };
+
+  const handleResetProfilePasswordViaOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user?.email) return;
+    setPassError("");
+    setPassSuccess("");
+
+    if (!profileOtp.trim() || profileOtp.trim().length < 6) {
+      setPassError("Vui lòng nhập đầy đủ mã xác thực OTP 6 số.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPassError("Mật khẩu mới phải có tối thiểu 6 ký tự.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPassError("Xác nhận mật khẩu mới không trùng khớp.");
+      return;
+    }
+
+    setProfileOtpVerifying(true);
+    try {
+      await authService.verifyPasswordOtp(user.email, profileOtp.trim());
+      const msg = await authService.resetNewPassword(user.email, newPassword);
+      setPassSuccess(msg || "Đặt lại mật khẩu mới thành công! Mật khẩu của bạn đã được cập nhật.");
+      setProfileOtp("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setProfileOtpSent(false);
+      setPassChangeMode("old_password");
+      setTimeout(() => setPassSuccess(""), 6000);
+    } catch (err: any) {
+      setPassError(err?.message || "Xác thực OTP hoặc đặt mật khẩu mới thất bại. Vui lòng kiểm tra lại mã OTP.");
+    } finally {
+      setProfileOtpVerifying(false);
     }
   };
 
@@ -341,13 +423,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">
-            Hồ sơ tài khoản & Bảo mật
+            {dashboardTab === "profile" && "Hồ sơ cá nhân & Địa chỉ nhận hàng"}
+            {dashboardTab === "transactions" && "Lịch sử thanh toán & Hoàn tiền"}
+            {dashboardTab === "security" && "Mật khẩu & Bảo mật tài khoản"}
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            Quản lý thông tin cá nhân, địa chỉ nhận hàng, đổi mật khẩu và dòng tiền ví
+            {dashboardTab === "profile" && "Quản lý thông tin tài khoản, số điện thoại và địa chỉ nhận hàng giao vận GHN"}
+            {dashboardTab === "transactions" && "Theo dõi chi tiết các giao dịch thanh toán đơn hàng MoMo/COD và các khoản bồi hoàn khiếu nại"}
+            {dashboardTab === "security" && "Thiết lập bảo mật, đổi mật khẩu tài khoản và khôi phục qua mã OTP Email"}
           </p>
         </div>
 
@@ -361,8 +447,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Left Column: Avatar, Wallet & Quick Info */}
+        {/* Left Column: Dashboard Navigation & Profile Sidebar */}
         <div className="space-y-5">
+          {/* User Mini Profile Card */}
           <Card className="p-6 text-center shadow-sm">
             {user?.avatar ? (
               <img
@@ -393,84 +480,184 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
             </div>
           </Card>
 
-          {/* Wallet / Balance */}
-          <Card className="p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <CreditCard size={16} className="text-blue-600" />
-                <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider">
-                  Ví thanh toán hoàn tiền
-                </h3>
+          {/* Navigation Menu Tabs */}
+          <Card className="p-2 shadow-sm space-y-1">
+            <button
+              type="button"
+              onClick={() => setDashboardTab("profile")}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-all cursor-pointer ${
+                dashboardTab === "profile"
+                  ? "bg-blue-600 text-white font-bold shadow-md shadow-blue-500/20"
+                  : "text-slate-700 hover:bg-slate-100 font-medium"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                  dashboardTab === "profile" ? "bg-white/20 text-white" : "bg-blue-50 text-blue-600"
+                }`}>
+                  <User size={16} />
+                </div>
+                <div>
+                  <p className="text-xs sm:text-sm leading-tight">Hồ sơ cá nhân</p>
+                  <p className={`text-[10px] mt-0.5 ${dashboardTab === "profile" ? "text-blue-100" : "text-slate-400"}`}>
+                    Thông tin & địa chỉ nhận
+                  </p>
+                </div>
               </div>
-              <button
-                onClick={loadTransactions}
-                title="Làm mới số dư & giao dịch"
-                className="text-slate-400 hover:text-blue-600 transition-colors p-1"
-              >
-                <RefreshCw size={13} className={loadingTx ? "animate-spin text-blue-600" : ""} />
-              </button>
-            </div>
-            <p className="text-2xl font-black text-blue-600 tracking-tight">
-              {fmt(user?.balance || 500000)}
-            </p>
-            <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
-              Tiền hoàn từ các đơn hàng khiếu nại thành công hoặc số dư tạm giữ được tích lũy vào đây.
-            </p>
+              <ChevronRight size={14} className={dashboardTab === "profile" ? "text-white" : "text-slate-300"} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDashboardTab("transactions")}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-all cursor-pointer ${
+                dashboardTab === "transactions"
+                  ? "bg-blue-600 text-white font-bold shadow-md shadow-blue-500/20"
+                  : "text-slate-700 hover:bg-slate-100 font-medium"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                  dashboardTab === "transactions" ? "bg-white/20 text-white" : "bg-emerald-50 text-emerald-600"
+                }`}>
+                  <Receipt size={16} />
+                </div>
+                <div>
+                  <p className="text-xs sm:text-sm leading-tight">Lịch sử giao dịch</p>
+                  <p className={`text-[10px] mt-0.5 ${dashboardTab === "transactions" ? "text-blue-100" : "text-slate-400"}`}>
+                    Thanh toán & hoàn tiền
+                  </p>
+                </div>
+              </div>
+              <ChevronRight size={14} className={dashboardTab === "transactions" ? "text-white" : "text-slate-300"} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDashboardTab("security")}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-all cursor-pointer ${
+                dashboardTab === "security"
+                  ? "bg-blue-600 text-white font-bold shadow-md shadow-blue-500/20"
+                  : "text-slate-700 hover:bg-slate-100 font-medium"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                  dashboardTab === "security" ? "bg-white/20 text-white" : "bg-indigo-50 text-indigo-600"
+                }`}>
+                  <ShieldCheck size={16} />
+                </div>
+                <div>
+                  <p className="text-xs sm:text-sm leading-tight">Mật khẩu & Bảo mật</p>
+                  <p className={`text-[10px] mt-0.5 ${dashboardTab === "security" ? "text-blue-100" : "text-slate-400"}`}>
+                    Đổi mật khẩu qua OTP
+                  </p>
+                </div>
+              </div>
+              <ChevronRight size={14} className={dashboardTab === "security" ? "text-white" : "text-slate-300"} />
+            </button>
           </Card>
 
-          {/* Open Shop CTA */}
-          {user?.role === "customer" && (
-            <Card className="p-5 bg-emerald-50/60 border-emerald-200 shadow-sm">
-              <div className="flex items-center gap-2 text-emerald-800 mb-2">
-                <Store size={18} />
-                <h3 className="font-bold text-xs uppercase tracking-wider">
-                  Trở thành Nhà Bán Hàng
-                </h3>
-              </div>
-              <p className="text-xs text-slate-600 mb-4 leading-relaxed">
-                {shopRegistered
-                  ? "Hồ sơ mở cửa hàng của bạn đang được Ban Quản Trị sàn kiểm tra xét duyệt."
-                  : "Mở gian hàng kinh doanh sách trên sàn BookVerse tiếp cận hàng triệu bạn đọc cả nước."}
+          {/* Account Overview Card (Chuẩn hóa nghiệp vụ sàn sách, loại bỏ Ví ảo 500k) */}
+          <Card className="p-4 shadow-sm bg-gradient-to-br from-slate-900 to-slate-800 text-white border-none">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] text-slate-300 font-medium uppercase tracking-wider flex items-center gap-1.5">
+                <ShieldCheck size={13} className="text-emerald-400" /> Tài khoản BookVerse
+              </span>
+              <span className="text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                Đã kích hoạt
+              </span>
+            </div>
+            <div className="space-y-1.5 pt-1 text-xs">
+              <p className="text-slate-300 text-[11px]">
+                <span className="text-slate-400">Tham gia:</span>{" "}
+                <span className="font-semibold text-white">
+                  {user?.createdAt ? formatOrderDate(user.createdAt) : "Thành viên BookVerse"}
+                </span>
               </p>
-              {shopRegistered ? (
-                <Badge
-                  label="Hồ sơ Shop chờ duyệt"
-                  color="#b45309"
-                  bg="#fef3c7"
-                />
-              ) : (
-                <Btn
-                  onClick={() => setShowShopRegister(!showShopRegister)}
-                  color="#047857"
-                  size="sm"
-                  className="w-full"
-                >
-                  {showShopRegister ? "Đóng form" : "Đăng ký mở Shop ngay"}
-                </Btn>
-              )}
-            </Card>
-          )}
-
-          {/* Account Security & Actions */}
-          <Card className="p-5 border-rose-100 bg-rose-50/30 shadow-sm space-y-3">
-            <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5 text-rose-700">
-              <AlertTriangle size={15} /> Quản lý an toàn tài khoản
-            </h3>
-            <div className="space-y-2">
+              <p className="text-slate-400 text-[10px] leading-relaxed">
+                Thanh toán trực tiếp qua MoMo Sandbox hoặc tiền mặt COD khi nhận sách.
+              </p>
+            </div>
+            {onGoOrders && (
               <button
                 type="button"
-                onClick={() => setShowDeleteModal(true)}
-                className="w-full flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                onClick={onGoOrders}
+                className="mt-3 w-full py-2 px-2.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
               >
-                <Trash2 size={14} /> Yêu cầu hủy / xóa tài khoản
+                <Package size={13} className="text-blue-300" />
+                <span>Quản lý Đơn hàng của tôi</span>
+                <ArrowRight size={12} />
               </button>
-            </div>
+            )}
           </Card>
+
+          {/* Quick Actions */}
+          <div className="space-y-2">
+            {onGoHome && (
+              <button
+                type="button"
+                onClick={onGoHome}
+                className="w-full flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+              >
+                <ArrowLeft size={14} /> Quay lại trang chủ sách
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={logout}
+              className="w-full flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl border border-rose-200 bg-rose-50/50 text-rose-600 hover:bg-rose-100 text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+            >
+              <LogOut size={14} /> Đăng xuất tài khoản
+            </button>
+          </div>
         </div>
 
-        {/* Right Column: Profile, Change Password, Shop Form & Transactions */}
+        {/* Right Column: Dynamic Dashboard Content */}
         <div className="md:col-span-2 space-y-6">
-          {/* Shop Registration Form Drawer/Card */}
+          {/* Mobile Tab Bar (Hiển thị trên màn hình nhỏ) */}
+          <div className="flex md:hidden items-center gap-1.5 p-1 bg-slate-100 rounded-xl overflow-x-auto border border-slate-200">
+            <button
+              type="button"
+              onClick={() => setDashboardTab("profile")}
+              className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold whitespace-nowrap transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                dashboardTab === "profile"
+                  ? "bg-white text-blue-600 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <User size={14} /> Hồ sơ cá nhân
+            </button>
+            <button
+              type="button"
+              onClick={() => setDashboardTab("transactions")}
+              className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold whitespace-nowrap transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                dashboardTab === "transactions"
+                  ? "bg-white text-emerald-600 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Receipt size={14} /> Giao dịch
+            </button>
+            <button
+              type="button"
+              onClick={() => setDashboardTab("security")}
+              className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold whitespace-nowrap transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                dashboardTab === "security"
+                  ? "bg-white text-indigo-600 shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <ShieldCheck size={14} /> Mật khẩu
+            </button>
+          </div>
+
+          {/* ========================================================================= */}
+          {/* PHÂN HỆ 1: HỒ SƠ CÁ NHÂN & ĐỊA CHỈ NHẬN HÀNG                             */}
+          {/* ========================================================================= */}
+          {dashboardTab === "profile" && (
+            <div className="space-y-6 animate-in fade-in-50 duration-200">
+              {/* Shop Registration Form Drawer/Card */}
           {showShopRegister && (
             <Card className="p-6 border-emerald-300 animate-in zoom-in-95 shadow-md">
               <h3 className="font-bold text-slate-800 text-base mb-2 flex items-center gap-2">
@@ -635,6 +822,47 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
             </form>
           </Card>
 
+          {/* Open Shop CTA (Dành cho tài khoản Customer) */}
+          {user?.role === "customer" && (
+            <Card className="p-5 bg-emerald-50/60 border-emerald-200 shadow-sm">
+              <div className="flex items-center gap-2 text-emerald-800 mb-2">
+                <Store size={18} />
+                <h3 className="font-bold text-xs uppercase tracking-wider">
+                  Trở thành Nhà Bán Hàng
+                </h3>
+              </div>
+              <p className="text-xs text-slate-600 mb-4 leading-relaxed">
+                {shopRegistered
+                  ? "Hồ sơ mở cửa hàng của bạn đang được Ban Quản Trị sàn kiểm tra xét duyệt."
+                  : "Mở gian hàng kinh doanh sách trên sàn BookVerse tiếp cận hàng triệu bạn đọc cả nước."}
+              </p>
+              {shopRegistered ? (
+                <Badge
+                  label="Hồ sơ Shop chờ duyệt"
+                  color="#b45309"
+                  bg="#fef3c7"
+                  className="w-fit"
+                />
+              ) : (
+                <Btn
+                  onClick={() => setShowShopRegister(!showShopRegister)}
+                  color="#047857"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                >
+                  {showShopRegister ? "Đóng form đăng ký" : "Đăng ký mở Shop ngay"}
+                </Btn>
+              )}
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* PHÂN HỆ 3: MẬT KHẨU & BẢO MẬT TÀI KHOẢN                                   */}
+      {/* ========================================================================= */}
+      {dashboardTab === "security" && (
+        <div className="space-y-6 animate-in fade-in-50 duration-200">
           {/* 2. Change Password Form */}
           <Card className="p-6 shadow-sm">
             <h3 className="font-bold text-slate-800 text-base mb-1 flex items-center gap-2">
@@ -662,69 +890,251 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
             {isGoogleUser ? (
               <div className="space-y-4">
                 {/* Google Notice Banner */}
-                <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50/60 border border-amber-200 text-amber-950 flex items-start gap-3.5">
-                  <div className="w-10 h-10 rounded-xl bg-white shadow-xs border border-amber-200 flex items-center justify-center shrink-0 mt-0.5">
-                    <svg className="w-5 h-5" viewBox="0 0 24 24">
-                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                    </svg>
-                  </div>
-                  <div className="text-xs sm:text-sm">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-bold text-slate-800">Tài khoản đăng nhập bằng Google</span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-200/90 text-amber-900 border border-amber-300">
-                        Chưa thiết lập mật khẩu cũ
-                      </span>
+                <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50/60 border border-amber-200 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3.5">
+                    <div className="w-10 h-10 rounded-xl bg-white shadow-xs border border-amber-200 flex items-center justify-center shrink-0 mt-0.5">
+                      <svg className="w-5 h-5" viewBox="0 0 24 24">
+                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                      </svg>
                     </div>
-                    <p className="mt-1 text-slate-600 leading-relaxed">
-                      Tài khoản <strong>{user?.email}</strong> của bạn được tạo và đăng nhập nhanh thông qua Google OAuth nên hiện tại <strong>chưa có mật khẩu truyền thống</strong>.
-                    </p>
-                    <p className="mt-1 text-slate-500 text-[11px]">
-                      Bạn vẫn có thể tiếp tục đăng nhập bình thường bằng Google. Nếu muốn tạo thêm mật khẩu riêng để đăng nhập bằng cả Email & Mật khẩu, bạn có thể thực hiện xác thực OTP bên dưới:
-                    </p>
+                    <div className="text-xs sm:text-sm">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-slate-800">Tài khoản bảo mật bằng Google OAuth</span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                          An toàn
+                        </span>
+                      </div>
+                      <p className="mt-1 text-slate-600 leading-relaxed text-xs">
+                        Tài khoản <strong>{user?.email}</strong> của bạn đăng nhập an toàn bằng tài khoản Google. Bạn không bắt buộc phải tạo mật khẩu riêng trừ khi muốn đăng nhập bằng Email & Mật khẩu.
+                      </p>
+                    </div>
                   </div>
+                  {!showGooglePassForm && (
+                    <Btn
+                      type="button"
+                      onClick={() => {
+                        setShowGooglePassForm(true);
+                        setPassError("");
+                        setPassSuccess("");
+                      }}
+                      color="#4f46e5"
+                      size="sm"
+                      className="whitespace-nowrap shrink-0 self-start sm:self-center"
+                    >
+                      <KeyRound size={14} /> Thiết lập thêm mật khẩu riêng
+                    </Btn>
+                  )}
                 </div>
 
-                {/* Form Thiết lập Mật Khẩu qua OTP */}
-                {!googleOtpSent ? (
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-bold text-slate-700">Thiết lập mật khẩu mới cho tài khoản</p>
-                      <p className="text-[11px] text-slate-400">Hệ thống sẽ gửi mã OTP xác nhận về hộp thư {user?.email}</p>
+                {/* Form Thiết lập Mật Khẩu qua OTP cho Google User */}
+                {showGooglePassForm && (
+                  <div className="p-4 rounded-2xl bg-indigo-50/40 border border-indigo-200/80 space-y-4 animate-in fade-in-50 duration-200">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                        <KeyRound size={14} className="text-indigo-600" /> Tạo mật khẩu riêng cho tài khoản
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowGooglePassForm(false);
+                          setGoogleOtpSent(false);
+                          setGoogleOtp("");
+                          setPassError("");
+                          setPassSuccess("");
+                        }}
+                        className="text-[11px] text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        Thu gọn
+                      </button>
                     </div>
-                    <Btn onClick={handleSendGoogleOtp} disabled={googleOtpSending} color="#4f46e5" size="sm">
-                      <Send size={14} /> {googleOtpSending ? "Đang gửi OTP..." : "Gửi mã OTP qua Email"}
-                    </Btn>
+
+                    {!googleOtpSent ? (
+                      <div className="p-3.5 rounded-xl bg-white border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-bold text-slate-700">Gửi mã xác thực về Gmail</p>
+                          <p className="text-[11px] text-slate-400">Hệ thống sẽ gửi mã OTP 6 số về hộp thư {user?.email}</p>
+                        </div>
+                        <Btn onClick={handleSendGoogleOtp} disabled={googleOtpSending} color="#4f46e5" size="sm">
+                          <Send size={14} /> {googleOtpSending ? "Đang gửi OTP..." : "Gửi mã OTP qua Email"}
+                        </Btn>
+                      </div>
+                    ) : (
+                      <form onSubmit={handleSetGooglePassword} className="space-y-4 pt-1">
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block text-xs font-semibold text-slate-600">
+                              Mã xác thực OTP (6 số) *
+                            </label>
+                            <button
+                              type="button"
+                              onClick={handleSendGoogleOtp}
+                              disabled={googleOtpSending}
+                              className="text-[11px] text-indigo-600 hover:underline font-semibold cursor-pointer"
+                            >
+                              {googleOtpSending ? "Đang gửi lại..." : "Gửi lại mã OTP"}
+                            </button>
+                          </div>
+                          <div className="relative">
+                            <ShieldCheck size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-indigo-500" />
+                            <input
+                              type="text"
+                              required
+                              maxLength={6}
+                              value={googleOtp}
+                              onChange={(e) => setGoogleOtp(e.target.value.replace(/\D/g, ''))}
+                              placeholder="Nhập mã 6 số gửi về email"
+                              className="w-full text-xs sm:text-sm pl-10 pr-4 py-2.5 border border-indigo-200 rounded-xl bg-white focus:outline-none focus:border-indigo-500 font-mono font-bold tracking-widest text-indigo-900"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1">
+                              Mật khẩu mới *
+                            </label>
+                            <div className="relative">
+                              <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                              <input
+                                type={showNewPass ? "text" : "password"}
+                                required
+                                value={newPassword}
+                                onChange={(e) => setNewPassword(e.target.value)}
+                                placeholder="Tối thiểu 6 ký tự"
+                                className="w-full text-xs sm:text-sm pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl bg-white focus:outline-none focus:border-indigo-500"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowNewPass(!showNewPass)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                              >
+                                {showNewPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1">
+                              Xác nhận mật khẩu mới *
+                            </label>
+                            <div className="relative">
+                              <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                              <input
+                                type={showConfirmPass ? "text" : "password"}
+                                required
+                                value={confirmPassword}
+                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                placeholder="Nhập lại mật khẩu mới"
+                                className="w-full text-xs sm:text-sm pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl bg-white focus:outline-none focus:border-indigo-500"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowConfirmPass(!showConfirmPass)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                              >
+                                {showConfirmPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="pt-2 flex items-center gap-3">
+                          <Btn type="submit" disabled={googleOtpVerifying} size="md" color="#4f46e5">
+                            <KeyRound size={16} /> {googleOtpVerifying ? "Đang xác thực & lưu..." : "Xác nhận & Thiết lập mật khẩu"}
+                          </Btn>
+                          <Btn
+                            type="button"
+                            onClick={() => {
+                              setShowGooglePassForm(false);
+                              setGoogleOtpSent(false);
+                              setGoogleOtp("");
+                            }}
+                            variant="ghost"
+                            size="md"
+                          >
+                            Hủy
+                          </Btn>
+                        </div>
+                      </form>
+                    )}
                   </div>
-                ) : (
-                  <form onSubmit={handleSetGooglePassword} className="space-y-4 pt-1">
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Segmented Switch: Chọn phương thức đổi mật khẩu */}
+                <div className="flex items-center p-1 rounded-xl bg-slate-100/90 max-w-sm border border-slate-200/80">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPassChangeMode("old_password");
+                      setPassError("");
+                      setPassSuccess("");
+                    }}
+                    className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      passChangeMode === "old_password"
+                        ? "bg-white text-indigo-600 shadow-xs border border-slate-200/60"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    <KeyRound size={13} /> Nhớ mật khẩu cũ
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPassChangeMode("email_otp");
+                      setPassError("");
+                      setPassSuccess("");
+                    }}
+                    className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      passChangeMode === "email_otp"
+                        ? "bg-white text-indigo-600 shadow-xs border border-slate-200/60"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    <Mail size={13} /> Quên mật khẩu? (Dùng OTP)
+                  </button>
+                </div>
+
+                {passChangeMode === "old_password" ? (
+                  <form onSubmit={handleChangePassword} className="space-y-4">
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="block text-xs font-semibold text-slate-600">
-                          Mã xác thực OTP (6 số) *
+                          Mật khẩu hiện tại *
                         </label>
                         <button
                           type="button"
-                          onClick={handleSendGoogleOtp}
-                          disabled={googleOtpSending}
-                          className="text-[11px] text-indigo-600 hover:underline font-semibold cursor-pointer"
+                          onClick={() => {
+                            setPassChangeMode("email_otp");
+                            setPassError("");
+                            setPassSuccess("");
+                          }}
+                          className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer hover:underline flex items-center gap-1"
                         >
-                          {googleOtpSending ? "Đang gửi lại..." : "Gửi lại mã OTP"}
+                          Quên mật khẩu hiện tại?
                         </button>
                       </div>
                       <div className="relative">
-                        <ShieldCheck size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                         <input
-                          type="text"
+                          type={showOldPass ? "text" : "password"}
                           required
-                          maxLength={6}
-                          value={googleOtp}
-                          onChange={(e) => setGoogleOtp(e.target.value)}
-                          placeholder="Nhập mã 6 số gửi về email"
-                          className="w-full text-xs sm:text-sm pl-10 pr-4 py-2.5 border border-indigo-200 rounded-xl bg-indigo-50/40 focus:outline-none focus:border-indigo-500 font-mono font-bold tracking-widest text-indigo-900"
+                          value={oldPassword}
+                          onChange={(e) => setOldPassword(e.target.value)}
+                          placeholder="Nhập mật khẩu đang sử dụng"
+                          className="w-full text-xs sm:text-sm pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500"
                         />
+                        <button
+                          type="button"
+                          onClick={() => setShowOldPass(!showOldPass)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                        >
+                          {showOldPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
                       </div>
                     </div>
 
@@ -778,112 +1188,223 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
                       </div>
                     </div>
 
-                    <div className="pt-2 flex items-center gap-3">
-                      <Btn type="submit" disabled={googleOtpVerifying} size="md" color="#4f46e5">
-                        <KeyRound size={16} /> {googleOtpVerifying ? "Đang xác thực & lưu..." : "Xác nhận & Thiết lập mật khẩu"}
-                      </Btn>
-                      <Btn type="button" onClick={() => setGoogleOtpSent(false)} variant="ghost" size="md">
-                        Hủy
+                    {newPassword && (
+                      <div className="space-y-1 pt-0.5">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-slate-500">Độ mạnh mật khẩu:</span>
+                          <span className={`font-semibold ${
+                            newPassword.length < 6 ? "text-rose-500" :
+                            newPassword.length < 9 ? "text-amber-500" : "text-emerald-600"
+                          }`}>
+                            {newPassword.length < 6 ? "Yếu (tối thiểu 6 ký tự)" :
+                             newPassword.length < 9 ? "Trung bình" : "Rất mạnh"}
+                          </span>
+                        </div>
+                        <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden flex gap-1">
+                          <div className={`h-full rounded-full transition-all ${
+                            newPassword.length >= 6 ? (newPassword.length < 9 ? "bg-amber-400 w-1/2" : "bg-emerald-500 w-full") : "bg-rose-400 w-1/4"
+                          }`} />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="pt-2">
+                      <Btn type="submit" disabled={changingPass} size="md" color="#4f46e5">
+                        <KeyRound size={16} /> {changingPass ? "Đang xử lý..." : "Cập nhật mật khẩu mới"}
                       </Btn>
                     </div>
                   </form>
+                ) : (
+                  /* Form Quên mật khẩu - Đổi qua OTP Email */
+                  <div className="space-y-4">
+                    <div className="p-4 rounded-2xl bg-gradient-to-br from-indigo-50 to-blue-50/50 border border-indigo-200/80 text-indigo-950 flex items-start gap-3.5">
+                      <div className="w-10 h-10 rounded-xl bg-white shadow-xs border border-indigo-200 flex items-center justify-center shrink-0 mt-0.5 text-indigo-600">
+                        <ShieldCheck size={20} />
+                      </div>
+                      <div className="text-xs sm:text-sm">
+                        <p className="font-bold text-slate-800">Xác thực danh tính qua mã OTP Email</p>
+                        <p className="mt-1 text-slate-600 leading-relaxed text-xs">
+                          Mã xác thực OTP gồm 6 chữ số sẽ được gửi về hộp thư đăng ký <strong>{user?.email}</strong>. Sau khi xác thực, bạn có thể thiết lập mật khẩu mới ngay mà không cần nhớ mật khẩu cũ.
+                        </p>
+                      </div>
+                    </div>
+
+                    {!profileOtpSent ? (
+                      <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-bold text-slate-700">Gửi mã xác thực về Gmail</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">Mã OTP có hiệu lực trong vòng 15 phút</p>
+                        </div>
+                        <Btn
+                          onClick={handleSendProfileOtp}
+                          disabled={profileOtpSending || profileOtpCooldown > 0}
+                          color="#4f46e5"
+                          size="sm"
+                        >
+                          <Send size={14} /> {profileOtpSending ? "Đang gửi OTP..." : profileOtpCooldown > 0 ? `Gửi lại sau (${profileOtpCooldown}s)` : "Gửi mã OTP về Email"}
+                        </Btn>
+                      </div>
+                    ) : (
+                      <form onSubmit={handleResetProfilePasswordViaOtp} className="space-y-4 pt-1">
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block text-xs font-semibold text-slate-600">
+                              Mã xác thực OTP (6 số) *
+                            </label>
+                            <button
+                              type="button"
+                              onClick={handleSendProfileOtp}
+                              disabled={profileOtpSending || profileOtpCooldown > 0}
+                              className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer disabled:text-slate-400"
+                            >
+                              {profileOtpSending ? "Đang gửi..." : profileOtpCooldown > 0 ? `Gửi lại sau (${profileOtpCooldown}s)` : "Gửi lại mã OTP"}
+                            </button>
+                          </div>
+                          <div className="relative">
+                            <ShieldCheck size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-indigo-500" />
+                            <input
+                              type="text"
+                              required
+                              maxLength={6}
+                              value={profileOtp}
+                              onChange={(e) => setProfileOtp(e.target.value.replace(/\D/g, ''))}
+                              placeholder="Nhập mã 6 số từ email"
+                              className="w-full text-xs sm:text-sm pl-10 pr-4 py-2.5 border border-indigo-200 rounded-xl bg-indigo-50/40 focus:outline-none focus:border-indigo-500 font-mono font-bold tracking-widest text-indigo-900"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1">
+                              Mật khẩu mới *
+                            </label>
+                            <div className="relative">
+                              <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                              <input
+                                type={showNewPass ? "text" : "password"}
+                                required
+                                value={newPassword}
+                                onChange={(e) => setNewPassword(e.target.value)}
+                                placeholder="Tối thiểu 6 ký tự"
+                                className="w-full text-xs sm:text-sm pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowNewPass(!showNewPass)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                              >
+                                {showNewPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1">
+                              Xác nhận mật khẩu mới *
+                            </label>
+                            <div className="relative">
+                              <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                              <input
+                                type={showConfirmPass ? "text" : "password"}
+                                required
+                                value={confirmPassword}
+                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                placeholder="Nhập lại mật khẩu mới"
+                                className="w-full text-xs sm:text-sm pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowConfirmPass(!showConfirmPass)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                              >
+                                {showConfirmPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {newPassword && (
+                          <div className="space-y-1 pt-0.5">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="text-slate-500">Độ mạnh mật khẩu:</span>
+                              <span className={`font-semibold ${
+                                newPassword.length < 6 ? "text-rose-500" :
+                                newPassword.length < 9 ? "text-amber-500" : "text-emerald-600"
+                              }`}>
+                                {newPassword.length < 6 ? "Yếu (tối thiểu 6 ký tự)" :
+                                 newPassword.length < 9 ? "Trung bình" : "Rất mạnh"}
+                              </span>
+                            </div>
+                            <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden flex gap-1">
+                              <div className={`h-full rounded-full transition-all ${
+                                newPassword.length >= 6 ? (newPassword.length < 9 ? "bg-amber-400 w-1/2" : "bg-emerald-500 w-full") : "bg-rose-400 w-1/4"
+                              }`} />
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="pt-2 flex items-center gap-3">
+                          <Btn type="submit" disabled={profileOtpVerifying} size="md" color="#4f46e5">
+                            <KeyRound size={16} /> {profileOtpVerifying ? "Đang xác thực & cập nhật..." : "Xác nhận & Cập nhật mật khẩu"}
+                          </Btn>
+                          <Btn
+                            type="button"
+                            onClick={() => {
+                              setPassChangeMode("old_password");
+                              setProfileOtpSent(false);
+                              setProfileOtp("");
+                            }}
+                            variant="ghost"
+                            size="md"
+                          >
+                            Quay lại
+                          </Btn>
+                        </div>
+                      </form>
+                    )}
+                  </div>
                 )}
               </div>
-            ) : (
-              <form onSubmit={handleChangePassword} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">
-                    Mật khẩu hiện tại *
-                  </label>
-                  <div className="relative">
-                    <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type={showOldPass ? "text" : "password"}
-                      required
-                      value={oldPassword}
-                      onChange={(e) => setOldPassword(e.target.value)}
-                      placeholder="Nhập mật khẩu đang sử dụng"
-                      className="w-full text-xs sm:text-sm pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowOldPass(!showOldPass)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                    >
-                      {showOldPass ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">
-                      Mật khẩu mới *
-                    </label>
-                    <div className="relative">
-                      <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input
-                        type={showNewPass ? "text" : "password"}
-                        required
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        placeholder="Tối thiểu 6 ký tự"
-                        className="w-full text-xs sm:text-sm pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowNewPass(!showNewPass)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                      >
-                        {showNewPass ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">
-                      Xác nhận mật khẩu mới *
-                    </label>
-                    <div className="relative">
-                      <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input
-                        type={showConfirmPass ? "text" : "password"}
-                        required
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        placeholder="Nhập lại mật khẩu mới"
-                        className="w-full text-xs sm:text-sm pl-10 pr-10 py-2.5 border border-slate-200 rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowConfirmPass(!showConfirmPass)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                      >
-                        {showConfirmPass ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-2">
-                  <Btn type="submit" disabled={changingPass} size="md" color="#4f46e5">
-                    <KeyRound size={16} /> {changingPass ? "Đang xử lý..." : "Cập nhật mật khẩu mới"}
-                  </Btn>
-                </div>
-              </form>
             )}
           </Card>
 
+          {/* Account Security & Danger Zone */}
+          <Card className="p-5 border-rose-100 bg-rose-50/30 shadow-sm space-y-3">
+            <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5 text-rose-700">
+              <AlertTriangle size={15} /> Khu vực nguy hiểm & An toàn tài khoản
+            </h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Vô hiệu hóa tài khoản và thu hồi toàn bộ phiên đăng nhập hiện có trên hệ thống BookVerse. Hành động này không thể hoàn tác.
+            </p>
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+              >
+                <Trash2 size={14} /> Yêu cầu hủy / xóa tài khoản
+              </button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* PHÂN HỆ 2: LỊCH SỬ THANH TOÁN & HOÀN TIỀN                                 */}
+      {/* ========================================================================= */}
+      {dashboardTab === "transactions" && (
+        <div className="space-y-6 animate-in fade-in-50 duration-200">
           {/* 3. Transactions History */}
           <Card className="p-6 shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
               <div>
                 <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
-                  <CreditCard size={18} className="text-emerald-600" />
-                  Lịch sử biến động dòng tiền
+                  <Receipt size={18} className="text-emerald-600" />
+                  Lịch sử thanh toán & Hoàn tiền
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Theo dõi chi tiết các khoản thanh toán, hoàn tiền khiếu nại và giao dịch ví
+                  Theo dõi chi tiết các giao dịch thanh toán đơn hàng MoMo/COD và các khoản bồi hoàn khiếu nại
                 </p>
               </div>
               <Btn onClick={loadTransactions} variant="ghost" size="sm" className="text-xs self-start sm:self-auto">
@@ -898,7 +1419,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
                   <ArrowUpRight size={20} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-medium text-slate-500 truncate">Tổng thanh toán</p>
+                  <p className="text-[11px] font-medium text-slate-500 truncate">Tổng thanh toán đơn</p>
                   <p className="text-sm sm:text-base font-bold text-slate-800 truncate">{fmt(totalSpent)}</p>
                 </div>
               </div>
@@ -908,7 +1429,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
                   <ArrowDownLeft size={20} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-medium text-slate-500 truncate">Tổng tiền hoàn trả</p>
+                  <p className="text-[11px] font-medium text-slate-500 truncate">Tổng tiền hoàn khiếu nại</p>
                   <p className="text-sm sm:text-base font-bold text-emerald-600 truncate">{fmt(totalRefunded)}</p>
                 </div>
               </div>
@@ -918,7 +1439,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
                   <Receipt size={20} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-medium text-slate-500 truncate">Lượt biến động</p>
+                  <p className="text-[11px] font-medium text-slate-500 truncate">Tổng số giao dịch</p>
                   <p className="text-sm sm:text-base font-bold text-slate-800 truncate">{transactions.length} giao dịch</p>
                 </div>
               </div>
@@ -987,7 +1508,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
             {loadingTx ? (
               <div className="py-12 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-2">
                 <RefreshCw size={20} className="animate-spin text-blue-600" />
-                <span>Đang đồng bộ lịch sử giao dịch từ máy chủ...</span>
+                <span>Đang tải lịch sử giao dịch từ máy chủ...</span>
               </div>
             ) : filteredTransactions.length === 0 ? (
               <div className="py-10 text-center bg-slate-50/70 rounded-2xl border border-dashed border-slate-200">
@@ -995,18 +1516,18 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
                 <p className="text-xs font-semibold text-slate-600">
                   {txSearch || txFilter !== "ALL"
                     ? "Không tìm thấy giao dịch nào phù hợp bộ lọc"
-                    : "Chưa có giao dịch nào phát sinh"}
+                    : "Chưa có giao dịch thanh toán hoặc hoàn tiền nào"}
                 </p>
                 <p className="text-[11px] text-slate-400 mt-1 max-w-sm mx-auto">
                   {txSearch || txFilter !== "ALL"
                     ? "Vui lòng thử tìm kiếm với từ khóa khác hoặc chuyển sang tab Tất cả."
-                    : "Khi bạn thanh toán hoặc nhận tiền hoàn, các giao dịch sẽ hiển thị tại đây."}
+                    : "Khi bạn thanh toán đơn hàng sách hoặc nhận bồi hoàn khiếu nại, các giao dịch thực tế sẽ xuất hiện tại đây."}
                 </p>
               </div>
             ) : (
               <div className="divide-y divide-slate-100 max-h-[380px] overflow-y-auto pr-1 space-y-2">
                 {filteredTransactions.map((tx) => {
-                  const isRefund = tx.referenceType === "REFUND" || tx.transactionType === "IN" || tx.type === "REFUND";
+                  const isRefund = tx.referenceType === "REFUND" || tx.type === "REFUND";
                   const code = tx.transactionCode || tx.code || "";
                   return (
                     <div
@@ -1106,6 +1627,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenAuth, onGoHome }
               </div>
             )}
           </Card>
+        </div>
+      )}
         </div>
       </div>
 
