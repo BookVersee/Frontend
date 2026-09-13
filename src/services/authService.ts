@@ -562,7 +562,9 @@ export const authService = {
       const res = await apiClient.post<ApiResponse<string>>("/user/SendPasswordOtp", {
         email: trimmedEmail,
       });
-      return res.data?.message || res.data?.data || "Mã OTP đã được gửi về Gmail của bạn.";
+      const dataMsg = typeof res.data?.data === "string" && res.data.data.trim().length > 0 ? res.data.data : null;
+      const isGenericEnglish = res.data?.message === "Request processed successfully.";
+      return dataMsg || (!isGenericEnglish && res.data?.message) || "Mã OTP đã được gửi về Gmail của bạn. Vui lòng kiểm tra hộp thư.";
     } catch (error: any) {
       console.warn("SendPasswordOtp API error:", error);
       if (error.response?.status === 404) {
@@ -581,7 +583,9 @@ export const authService = {
         email: trimmedEmail,
         otp: trimmedOtp,
       });
-      return res.data?.message || res.data?.data || "Xác thực OTP thành công!";
+      const dataMsg = typeof res.data?.data === "string" && res.data.data.trim().length > 0 ? res.data.data : null;
+      const isGenericEnglish = res.data?.message === "Request processed successfully.";
+      return dataMsg || (!isGenericEnglish && res.data?.message) || "Xác thực OTP thành công! Bạn có thể đặt mật khẩu mới.";
     } catch (error: any) {
       console.warn("VerifyPasswordOtp API error:", error);
       if (error.response?.status === 404) {
@@ -599,7 +603,9 @@ export const authService = {
         email: trimmedEmail,
         newPassword,
       });
-      return res.data?.message || res.data?.data || "Thiết lập mật khẩu mới thành công!";
+      const dataMsg = typeof res.data?.data === "string" && res.data.data.trim().length > 0 ? res.data.data : null;
+      const isGenericEnglish = res.data?.message === "Request processed successfully.";
+      return dataMsg || (!isGenericEnglish && res.data?.message) || "Thiết lập mật khẩu mới thành công!";
     } catch (error: any) {
       console.warn("ResetNewPassword API error:", error);
       const msg = error.response?.data?.message || "Không thể thiết lập mật khẩu mới.";
@@ -607,13 +613,13 @@ export const authService = {
     }
   },
 
-
   async getUserTransactions(): Promise<Transaction[]> {
     try {
       const response = await apiClient.get<ApiResponse<BackendTransactionResponse[]>>("/user/GetMyTransactions");
       const list = response.data?.data || [];
       return list.map((tx: BackendTransactionResponse) => {
-        const isRefund = tx.referenceType === "REFUND" || tx.transactionType === "IN";
+        // Chỉ khi referenceType là REFUND thì mới là tiền hoàn khiếu nại
+        const isRefund = tx.referenceType === "REFUND";
         return {
           id: tx.id,
           userId: tx.userId,
@@ -627,14 +633,13 @@ export const authService = {
           code: tx.transactionCode || undefined,
           transactionCode: tx.transactionCode || undefined,
           status: "SUCCESS",
-          description: tx.description || (isRefund ? "Hoàn tiền giao dịch" : "Thanh toán giao dịch"),
+          description: tx.description || (isRefund ? "Hoàn tiền đơn hàng" : "Thanh toán đơn hàng"),
           createdAt: tx.createdAt,
         };
       });
     } catch (error) {
-      console.warn("getUserTransactions API error, falling back to mock:", error);
-      const current = getStoredUser<User>();
-      return INITIAL_TRANSACTIONS.filter((t) => t.userId === current?.id || t.orderId === 1001);
+      console.warn("getUserTransactions API error, returning empty array:", error);
+      return [];
     }
   },
 

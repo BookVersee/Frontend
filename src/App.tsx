@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { CartProvider } from "./contexts/CartContext";
 import { Header } from "./components/common/Header";
@@ -194,6 +194,7 @@ const AppContent: React.FC = () => {
           <ProfilePage
             onOpenAuth={() => setAuthModalOpen(true)}
             onGoHome={() => setCustomerPage("home")}
+            onGoOrders={() => setCustomerPage("orders")}
           />
         )}
 
